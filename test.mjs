@@ -1,4 +1,5 @@
 import { formatPayload, comparePayloads } from './src/core.js';
+import { searchJsonTree } from './src/search.js';
 import assert from 'node:assert/strict';
 
 const escaped = '{\\"name\\":\\"Sai\\",\\"nested\\":{\\"ok\\":true}}';
@@ -18,7 +19,21 @@ const xc = comparePayloads({ mode: 'xml', left: '<r><a>1</a><b>2</b></r>', right
 assert.equal(xc.identical, false);
 assert.ok(xc.summary.added > 0);
 
-// ~60k formatted JSON lines: 20k objects x 3 lines-ish, used as a practical stress smoke test.
+const searchable = {
+  offers: [
+    { id: 'A1', passenger: { seatSelectable: true } },
+    { id: 'B2', passenger: { seatSelectable: false } },
+  ],
+};
+const search = searchJsonTree(searchable, 'seatSelectable');
+assert.deepEqual(search.paths, [
+  '$.offers[0].passenger.seatSelectable',
+  '$.offers[1].passenger.seatSelectable',
+]);
+const valueSearch = searchJsonTree(searchable, 'B2');
+assert.deepEqual(valueSearch.paths, ['$.offers[1].id']);
+
+// ~100k formatted JSON lines: practical stress smoke test for the target payload size.
 const huge = { offers: [] };
 for (let i = 0; i < 20000; i += 1) huge.offers.push({ id: i, status: 'ACTIVE', price: i + 0.25 });
 const hugeText = JSON.stringify(huge);
@@ -26,5 +41,10 @@ const start = performance.now();
 const hugeResult = formatPayload({ mode: 'json', text: hugeText });
 const elapsed = Math.round(performance.now() - start);
 assert.ok(hugeResult.lineCount > 50000);
+const hugeSearchStart = performance.now();
+const hugeSearch = searchJsonTree(hugeResult.parsed, '19999');
+const hugeSearchElapsed = Math.round(performance.now() - hugeSearchStart);
+assert.ok(hugeSearch.paths.some((path) => path.includes('[19999]')));
 console.log(`PASS: huge JSON formatted to ${hugeResult.lineCount.toLocaleString()} lines in ${elapsed} ms under Node.`);
+console.log(`PASS: huge JSON tree searched in ${hugeSearchElapsed} ms under Node.`);
 console.log('All core tests passed.');
