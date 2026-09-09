@@ -1,3 +1,3 @@
 import './main.js';
 import './enhancements.js';
-import './nondestructive.js';
+import './editable-default.js';
