@@ -2,28 +2,35 @@
 
 A private, ad-free JSON/XML formatter and side-by-side comparison tool designed for very large payloads.
 
-## Current features
+## Core purpose
 
-- JSON ↔ JSON and XML ↔ XML modes only.
-- Two side-by-side panes: File 1 and File 2.
+PayloadDiff does one thing well: compare two payloads and clearly show the differences.
+
+- JSON ↔ JSON only.
+- XML ↔ XML only.
+- File 1 on the left and File 2 on the right.
 - Paste or upload `.json`, `.xml`, or `.txt` payloads.
-- Flexible JSON cleanup for commonly escaped payloads such as `\"key\"` and multiple escaping layers.
-- XML cleanup for escaped attribute quotes.
-- JSON formatting and XML formatting/validation.
+- Preserve the original pasted/uploaded source text.
+- Formatting is only a working/display representation and does not replace the original source.
 - JSON Tree View with lazy branch expansion/collapse.
-- Worker-based JSON Tree search by key, JSON path, or primitive value.
+- JSON Tree search by key, JSON path, or primitive value.
 - Optional synchronized tree navigation between File 1 and File 2.
-- JSON structural comparison by path rather than simple line order.
-- Difference navigation that expands the JSON tree to the changed path.
-- XML line comparison in a Web Worker.
-- Virtualized formatted Code View: only visible lines plus a small overscan window are rendered in the DOM.
-- No backend, no database, no payload upload.
+- JSON structural comparison by path.
+- XML line comparison.
+- Added, removed, and modified differences are reported.
+- Previous/Next difference navigation.
+- Virtualized formatted Code View for very large payloads.
+- No backend, no database, no payload upload, no advertisements.
+
+## Non-destructive behavior
+
+PayloadDiff should never intentionally change business data. The original text entered by the user remains available exactly as pasted or uploaded. When formatting is needed for readability, tree navigation, or comparison, the application creates a separate working representation and then restores the original editor content.
 
 ## Performance design
 
-Formatting and comparison already run in a Web Worker. JSON tree search now also runs in a dedicated worker so searching a very large parsed payload does not block the main UI.
+Formatting and comparison run in a Web Worker so large payload processing does not block the main browser UI.
 
-The formatted Code View uses fixed-height virtualization. A 50,000–100,000+ line payload can be held as text while only the lines near the current scroll position are represented by DOM rows.
+JSON tree search also runs in a dedicated worker. The formatted Code View uses fixed-height virtualization, so a 50,000–100,000+ line payload can be held as text while only the lines near the current scroll position are represented by DOM rows.
 
 The JSON tree remains lazy. Collapsed branches do not create child rows until expanded, and large arrays/objects load children in pages of 250.
 
@@ -44,7 +51,7 @@ Then open the local URL shown in the terminal.
 npm test
 ```
 
-The test suite includes escaped JSON/XML handling, JSON/XML comparison, JSON tree search, and a generated JSON payload that formats to roughly 100,000 lines.
+The test suite includes JSON/XML formatting and comparison, JSON tree search, and a generated JSON payload that formats to roughly 100,000 lines.
 
 ## Production build
 
@@ -54,9 +61,6 @@ npm run build
 
 The deployable static site is generated in `dist/` and can be hosted on Cloudflare Pages, Netlify, Vercel, GitHub Pages, or any static web server.
 
-## Next milestone
+## Product rule
 
-- Ignore selected JSON paths/keys such as timestamps, request IDs, and session IDs.
-- Smarter array comparison by a selected identity key instead of array position only.
-- JSON Code View path-to-line highlighting so structural changes can also be shown directly in virtualized code.
-- Additional stress testing with real-world multi-megabyte payloads.
+Keep the tool focused. Do not add ignore-field rules, business-specific transformations, or automatic data changes unless explicitly requested later.
