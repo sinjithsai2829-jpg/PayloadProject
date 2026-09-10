@@ -8,3 +8,4 @@ import './persistence.js';
 import './diff-visibility.js';
 import './editable-code-surface.js';
 import './scrollbar-visibility.js';
+import './saved-comparisons.js';
