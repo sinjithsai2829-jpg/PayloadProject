@@ -88,18 +88,22 @@ function saveComparison() {
       ui: captureUiState(),
     });
     const html = createPortableComparisonHtml(snapshot);
+    const filename = portableComparisonDownloadName();
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = portableComparisonDownloadName();
+    anchor.download = filename;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
-    setStatus('Comparison saved as a browser HTML file. Double-click it to reopen the comparison in your default browser.');
+    setStatus(`Comparison saved as ${filename}. Double-click it to reopen the comparison in your default browser.`);
     log('info', 'comparison-file.saved', {
       format: 'portable-html',
+      exportVersion: 'browser-v2',
+      filename,
+      htmlChars: html.length,
       mode: snapshot.mode,
       chars: [snapshot.payloads.left.length, snapshot.payloads.right.length],
       currentDiffIndex: snapshot.ui.currentDiffIndex,
@@ -124,6 +128,7 @@ async function openComparison(event) {
     await restoreSnapshot(snapshot);
     setStatus(`Saved ${snapshot.mode.toUpperCase()} comparison restored.`);
     log('info', 'comparison-file.opened', {
+      filename: file.name,
       mode: snapshot.mode,
       chars: [snapshot.payloads.left.length, snapshot.payloads.right.length],
       currentDiffIndex: snapshot.ui.currentDiffIndex,
