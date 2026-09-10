@@ -5,8 +5,7 @@ const compareBtn = document.querySelector('#compareBtn');
 const compareBar = document.querySelector('#compareBar');
 const workspace = document.querySelector('.workspace');
 
-// Keep the comparison result visible near the Compare button. Previously it
-// lived below the full-height editors, so users could miss the summary.
+// Keep the comparison summary visible near the Compare button.
 if (compareBar && workspace?.parentNode) {
   workspace.parentNode.insertBefore(compareBar, workspace);
   compareBar.style.marginTop = '0';
@@ -24,10 +23,6 @@ function afterBusy(callback) {
     requestAnimationFrame(check);
   };
   requestAnimationFrame(check);
-}
-
-function nextFrame() {
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
 function showEditableCode(index) {
@@ -49,7 +44,7 @@ function showEditableCode(index) {
 
   if (virtualToggle) {
     virtualToggle.disabled = !editor.value.trim();
-    virtualToggle.textContent = 'View formatted';
+    virtualToggle.textContent = 'Large view';
   }
 }
 
@@ -57,58 +52,18 @@ function keepFormattedTextEditable() {
   [0, 1].forEach(showEditableCode);
 }
 
-function isJsonMode() {
-  return document.querySelector('.mode-btn.active')?.dataset.mode === 'json';
-}
-
-async function revealFirstVisibleDiff(index) {
-  const tree = panes[index]?.querySelector('.tree-view');
-  if (!tree) return;
-
-  // Expand only one changed branch at a time. This reveals an actual changed
-  // value without expanding a huge 50k+ node payload all at once.
-  for (let depth = 0; depth < 12; depth += 1) {
-    const exact = tree.querySelector('.tree-row.diff-added, .tree-row.diff-removed, .tree-row.diff-modified');
-    if (exact) {
-      exact.scrollIntoView({ block: 'center' });
-      return;
-    }
-
-    const branch = [...tree.querySelectorAll('.tree-row.diff-branch')].find((row) => {
-      const toggle = row.querySelector('.tree-toggle');
-      return toggle && !toggle.disabled && toggle.textContent === '▸';
-    });
-
-    if (!branch) return;
-    branch.querySelector('.tree-toggle')?.click();
-    await nextFrame();
+function restoreCurrentComparisonView() {
+  for (let index = 0; index < panes.length; index += 1) {
+    const treeTab = panes[index].querySelector('.view-btn[data-view="tree"]');
+    // Compare must not force Tree view. If the user was already in Tree, leave
+    // it alone; otherwise keep Code as the editable comparison surface.
+    if (!treeTab?.classList.contains('active')) showEditableCode(index);
   }
-}
-
-async function showJsonComparison() {
-  if (!compareBar || compareBar.classList.contains('hidden')) {
-    keepFormattedTextEditable();
-    return;
-  }
-
-  for (const pane of panes) {
-    const treeTab = pane.querySelector('.view-btn[data-view="tree"]');
-    if (treeTab && !treeTab.classList.contains('active')) treeTab.click();
-  }
-
-  await nextFrame();
-  await revealFirstVisibleDiff(0);
-  await revealFirstVisibleDiff(1);
-}
-
-function showComparisonResult() {
-  if (isJsonMode()) showJsonComparison();
-  else keepFormattedTextEditable();
 }
 
 // Formatting leaves the normalized payload directly editable.
 formatBtn?.addEventListener('click', () => afterBusy(keepFormattedTextEditable), true);
 
-// Comparing JSON opens Tree View, where structural differences are highlighted.
-// XML remains in editable Code View and uses its line-difference navigation.
-compareBtn?.addEventListener('click', () => afterBusy(showComparisonResult), true);
+// Comparing preserves the view the user chose. Code remains editable and Tree
+// remains available as an optional navigation view. No automatic scroll occurs.
+compareBtn?.addEventListener('click', () => afterBusy(restoreCurrentComparisonView), true);
