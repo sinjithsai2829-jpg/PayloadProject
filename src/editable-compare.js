@@ -3,16 +3,24 @@ const panes = [...document.querySelectorAll('.pane')];
 const compareBtn = document.querySelector('#compareBtn');
 const clearBtn = document.querySelector('#clearBtn');
 const compareBar = document.querySelector('#compareBar');
+const compareSummary = document.querySelector('#compareSummary');
+const diffPosition = document.querySelector('#diffPosition');
+const prevDiff = document.querySelector('#prevDiff');
+const nextDiff = document.querySelector('#nextDiff');
 const statusText = document.querySelector('#statusText');
 
 let compareActive = false;
-let autoCompareTimer = 0;
+let liveTimer = 0;
 let workerSeq = 0;
+let latestRequest = 0;
+let currentDiffIndex = 0;
+let orderedDiffs = [];
+let lastGoodSummary = null;
+let lastGoodElapsed = 0;
 const workerPending = new Map();
-let editSnapshot = null;
 const diffsByPane = [[], []];
 
-const worker = new Worker(new URL('./code-diff-worker.js', import.meta.url), { type: 'module' });
+const worker = new Worker(new URL('./smooth-worker.js', import.meta.url), { type: 'module' });
 worker.onmessage = ({ data }) => {
   const pending = workerPending.get(data.id);
   if (!pending) return;
@@ -20,11 +28,11 @@ worker.onmessage = ({ data }) => {
   data.ok ? pending.resolve(data.result) : pending.reject(new Error(data.error));
 };
 
-function runCodeDiff(left, right) {
+function runFastCompare(left, right) {
   return new Promise((resolve, reject) => {
     const id = ++workerSeq;
     workerPending.set(id, { resolve, reject });
-    worker.postMessage({ id, left, right });
+    worker.postMessage({ id, task: 'compareJson', payload: { left, right } });
   });
 }
 
@@ -50,11 +58,7 @@ function installStyles() {
       overflow: hidden;
       pointer-events: none;
       background: #0b1221;
-      transition: opacity .12s ease;
     }
-    body[data-compare-phase="editing"] .editor-diff-overlay,
-    body[data-compare-phase="updating"] .editor-diff-overlay { opacity: .62; }
-    body[data-compare-phase="paused"] .editor-diff-overlay { opacity: .42; }
     .editor-diff-band {
       position: absolute;
       left: 0;
@@ -62,19 +66,17 @@ function installStyles() {
       border-left: 3px solid transparent;
       pointer-events: none;
     }
-    .editor-diff-band.modified {
-      background: rgba(245, 158, 11, .14);
-      border-left-color: #f59e0b;
+    .editor-diff-band.modified { background: rgba(245,158,11,.14); border-left-color: #f59e0b; }
+    .editor-diff-band.added { background: rgba(34,197,94,.13); border-left-color: #22c55e; }
+    .editor-diff-band.removed { background: rgba(239,68,68,.13); border-left-color: #ef4444; }
+    .editor-diff-band.current { outline: 1px solid rgba(96,165,250,.9); outline-offset: -1px; }
+    .compare-bar.live-stale #compareSummary { opacity: .72; }
+    .compare-bar.live-stale::after {
+      content: 'editing…';
+      color: #fbbf24;
+      font-size: 11px;
+      margin-left: 8px;
     }
-    .editor-diff-band.added {
-      background: rgba(34, 197, 94, .13);
-      border-left-color: #22c55e;
-    }
-    .editor-diff-band.removed {
-      background: rgba(239, 68, 68, .13);
-      border-left-color: #ef4444;
-    }
-    .compare-bar.comparison-updating #compareSummary { opacity: .72; }
   `;
   document.head.appendChild(style);
 }
@@ -99,13 +101,6 @@ function isVisible(element) {
   return !!element && !element.classList.contains('hidden') && element.offsetParent !== null;
 }
 
-function setSession(active, phase = active ? 'current' : 'idle') {
-  compareActive = active;
-  document.body.dataset.compareSession = active ? 'active' : 'idle';
-  document.body.dataset.comparePhase = phase;
-  compareBar?.classList.toggle('comparison-updating', active && phase !== 'current');
-}
-
 function afterBusy(callback) {
   let sawBusy = document.body.classList.contains('busy');
   const check = () => {
@@ -119,151 +114,141 @@ function afterBusy(callback) {
   requestAnimationFrame(check);
 }
 
-function compareSucceeded() {
-  if (!compareBar || compareBar.classList.contains('hidden')) return false;
-  const status = statusText?.textContent || '';
-  return status.startsWith('Comparison complete') || status.startsWith('Identical');
-}
-
 compareBtn?.addEventListener('click', () => {
-  const wasActive = compareActive;
-  clearTimeout(autoCompareTimer);
-
   afterBusy(async () => {
-    if (compareSucceeded()) {
-      setSession(true, 'current');
-      await refreshEditableDiffs();
-      restoreEditSnapshot();
-      return;
-    }
-
-    if (wasActive) {
-      // A failed refresh must never kick the user out of compare mode. Keep the
-      // last successful result visible and wait for the payload to become valid.
-      setSession(true, 'paused');
-      if (compareBar) compareBar.classList.remove('hidden');
-      restoreEditSnapshot();
-      return;
-    }
-
-    setSession(false, 'idle');
-    clearEditableDiffs();
+    if (currentMode() !== 'json' || !editors[0].value.trim() || !editors[1].value.trim()) return;
+    const succeeded = !!compareBar && !compareBar.classList.contains('hidden');
+    if (!succeeded) return;
+    compareActive = true;
+    await refreshFastComparison({ preserveNavigator: false });
   });
 }, true);
 
 editors.forEach((editor) => {
   editor.addEventListener('input', () => {
-    if (!compareActive) return;
+    if (!compareActive || currentMode() !== 'json') return;
 
-    clearTimeout(autoCompareTimer);
-    setSession(true, 'editing');
+    clearTimeout(liveTimer);
 
-    // main.js clears its internal comparison object on input. Keep the last
-    // successful comparison UI and overlay visible while the user is typing.
+    // main.js clears its private comparison state on input. Re-show the last
+    // successful comparison immediately so editing never feels like leaving
+    // compare mode. Do not clear the last-good highlights.
     requestAnimationFrame(() => {
       if (!compareActive || !compareBar) return;
       compareBar.classList.remove('hidden');
+      compareBar.classList.add('live-stale');
+      restoreLastGoodSummary();
       renderOverlay(0);
       renderOverlay(1);
     });
 
-    autoCompareTimer = window.setTimeout(() => {
-      if (!compareActive) return;
-
-      const validation = validateCurrentPayloads();
-      if (!validation.ok) {
-        setSession(true, 'paused');
-        if (statusText) {
-          statusText.textContent = `Comparison paused while editing: ${validation.message}`;
-          statusText.classList.remove('error');
-        }
-        return;
-      }
-
-      editSnapshot = snapshotEditingPosition();
-      setSession(true, 'updating');
-      if (statusText) {
-        statusText.textContent = 'Updating comparison…';
-        statusText.classList.remove('error');
-      }
-      compareBtn?.click();
-    }, 700);
+    // Small debounce keeps typing smooth. No formatting and no synthetic
+    // Compare click: one parse + one structural diff in one worker only.
+    liveTimer = window.setTimeout(() => refreshFastComparison({ preserveNavigator: true }), 220);
   });
 });
 
-clearBtn?.addEventListener('click', () => {
-  setSession(false, 'idle');
-  clearTimeout(autoCompareTimer);
-  clearEditableDiffs();
-});
+prevDiff?.addEventListener('click', (event) => handleFastNavigation(event, -1), true);
+nextDiff?.addEventListener('click', (event) => handleFastNavigation(event, 1), true);
 
-document.querySelectorAll('.mode-btn').forEach((button) => {
-  button.addEventListener('click', () => {
-    setSession(false, 'idle');
-    clearTimeout(autoCompareTimer);
-    clearEditableDiffs();
-  });
-});
+function handleFastNavigation(event, delta) {
+  if (!compareActive || currentMode() !== 'json' || !orderedDiffs.length) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  currentDiffIndex = (currentDiffIndex + delta + orderedDiffs.length) % orderedDiffs.length;
+  updateNavigator();
+  scrollToCurrentDiff();
+}
 
-// Whenever Code/Tree or Large view changes, show the overlay only when the
-// actual editable textarea is the visible comparison surface.
+clearBtn?.addEventListener('click', resetLiveCompare);
+document.querySelectorAll('.mode-btn').forEach((button) => button.addEventListener('click', resetLiveCompare));
+
 for (const pane of panes) {
-  pane.addEventListener('click', () => {
-    requestAnimationFrame(() => {
-      renderOverlay(0);
-      renderOverlay(1);
-    });
-  });
-}
-
-function validateCurrentPayloads() {
-  const left = editors[0]?.value || '';
-  const right = editors[1]?.value || '';
-  if (!left.trim() || !right.trim()) return { ok: false, message: 'both files are required' };
-
-  if (currentMode() === 'json') {
-    try {
-      JSON.parse(left);
-    } catch (error) {
-      return { ok: false, message: `File 1 has incomplete/invalid JSON (${compactJsonError(error)})` };
-    }
-    try {
-      JSON.parse(right);
-    } catch (error) {
-      return { ok: false, message: `File 2 has incomplete/invalid JSON (${compactJsonError(error)})` };
-    }
-    return { ok: true };
-  }
-
-  const parser = new DOMParser();
-  const leftDoc = parser.parseFromString(left, 'application/xml');
-  if (leftDoc.querySelector('parsererror')) return { ok: false, message: 'File 1 has incomplete/invalid XML' };
-  const rightDoc = parser.parseFromString(right, 'application/xml');
-  if (rightDoc.querySelector('parsererror')) return { ok: false, message: 'File 2 has incomplete/invalid XML' };
-  return { ok: true };
-}
-
-function compactJsonError(error) {
-  const text = error?.message || 'unable to parse';
-  return text.length > 110 ? `${text.slice(0, 107)}…` : text;
-}
-
-async function refreshEditableDiffs() {
-  if (!compareActive || currentMode() !== 'json') {
-    clearEditableDiffs();
-    return;
-  }
-
-  try {
-    const result = await runCodeDiff(editors[0].value, editors[1].value);
-    diffsByPane[0] = buildLineTypes(result.ordered || [], 0);
-    diffsByPane[1] = buildLineTypes(result.ordered || [], 1);
+  pane.addEventListener('click', () => requestAnimationFrame(() => {
     renderOverlay(0);
     renderOverlay(1);
-  } catch {
-    // Preserve the last successful overlay. A temporary parse problem while
-    // typing must not visually exit comparison mode.
+  }));
+}
+
+async function refreshFastComparison({ preserveNavigator }) {
+  if (!compareActive || currentMode() !== 'json') return;
+  const left = editors[0].value;
+  const right = editors[1].value;
+  if (!left.trim() || !right.trim()) return;
+
+  const request = ++latestRequest;
+  try {
+    const result = await runFastCompare(left, right);
+    if (request !== latestRequest || !compareActive) return;
+
+    orderedDiffs = result.ordered || [];
+    lastGoodSummary = result.summary;
+    lastGoodElapsed = result.elapsedMs;
+    if (!preserveNavigator || currentDiffIndex >= orderedDiffs.length) currentDiffIndex = 0;
+
+    diffsByPane[0] = buildLineTypes(orderedDiffs, 0);
+    diffsByPane[1] = buildLineTypes(orderedDiffs, 1);
+
+    renderSummary(result);
+    updateNavigator();
+    renderOverlay(0);
+    renderOverlay(1);
+    compareBar?.classList.remove('live-stale');
+    setLiveStatus(result.identical ? `Identical (${result.elapsedMs} ms)` : `Live comparison ${result.elapsedMs} ms`);
+  } catch (error) {
+    if (request !== latestRequest || !compareActive) return;
+    // A half-typed JSON document is normal. Keep last good comparison visible
+    // and retry on the next edit instead of clearing the UI or showing a loud
+    // parse error while the user is typing.
+    compareBar?.classList.add('live-stale');
+    restoreLastGoodSummary();
+    setLiveStatus('Editing — comparison will refresh when JSON is valid.', false);
   }
+}
+
+function renderSummary(result) {
+  if (!compareSummary || !compareBar) return;
+  compareBar.classList.remove('hidden');
+  const s = result.summary;
+  if (result.identical) {
+    compareSummary.innerHTML = '<strong class="same">No differences found.</strong>';
+  } else {
+    compareSummary.innerHTML = `<strong>${s.added + s.removed + s.modified} changes</strong> <span class="added">+${s.added} added</span> <span class="removed">−${s.removed} removed</span> <span class="modified">~${s.modified} modified</span>${s.truncated ? ' <span class="warn">(navigation capped)</span>' : ''}`;
+  }
+}
+
+function restoreLastGoodSummary() {
+  if (!lastGoodSummary || !compareSummary) return;
+  const s = lastGoodSummary;
+  const total = s.added + s.removed + s.modified;
+  compareSummary.innerHTML = total
+    ? `<strong>${total} changes</strong> <span class="added">+${s.added} added</span> <span class="removed">−${s.removed} removed</span> <span class="modified">~${s.modified} modified</span>`
+    : '<strong class="same">No differences found.</strong>';
+  updateNavigator();
+}
+
+function updateNavigator() {
+  const total = orderedDiffs.length;
+  if (diffPosition) diffPosition.textContent = total ? `${currentDiffIndex + 1} of ${total}` : '0 of 0';
+  if (prevDiff) prevDiff.disabled = total === 0;
+  if (nextDiff) nextDiff.disabled = total === 0;
+}
+
+function scrollToCurrentDiff() {
+  const diff = orderedDiffs[currentDiffIndex];
+  if (!diff) return;
+  scrollEditorToLine(0, diff.leftLine || diff.rightLine);
+  scrollEditorToLine(1, diff.rightLine || diff.leftLine);
+  renderOverlay(0);
+  renderOverlay(1);
+}
+
+function scrollEditorToLine(index, line) {
+  if (!line) return;
+  const editor = editors[index];
+  if (!isVisible(editor)) return;
+  const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 20;
+  editor.scrollTop = Math.max(0, (line - 1) * lineHeight - editor.clientHeight * 0.42);
 }
 
 function buildLineTypes(ordered, paneIndex) {
@@ -277,9 +262,7 @@ function buildLineTypes(ordered, paneIndex) {
     if (type !== 'added' && type !== 'removed') type = 'modified';
     byLine.set(line, type);
   }
-  return [...byLine.entries()]
-    .map(([line, type]) => ({ line, type }))
-    .sort((a, b) => a.line - b.line);
+  return [...byLine.entries()].map(([line, type]) => ({ line, type })).sort((a, b) => a.line - b.line);
 }
 
 function renderOverlay(index) {
@@ -301,6 +284,8 @@ function renderOverlay(index) {
   const paddingTop = parseFloat(computed.paddingTop) || 0;
   const firstVisible = Math.max(1, Math.floor((editor.scrollTop - paddingTop) / lineHeight) + 1);
   const lastVisible = Math.ceil((editor.scrollTop + editor.clientHeight - paddingTop) / lineHeight) + 1;
+  const current = orderedDiffs[currentDiffIndex];
+  const currentLine = index === 0 ? current?.leftLine : current?.rightLine;
   const entries = diffsByPane[index];
   const start = lowerBound(entries, firstVisible - 2);
   const frag = document.createDocumentFragment();
@@ -309,7 +294,7 @@ function renderOverlay(index) {
     const entry = entries[i];
     if (entry.line > lastVisible + 2) break;
     const band = document.createElement('div');
-    band.className = `editor-diff-band ${entry.type}`;
+    band.className = `editor-diff-band ${entry.type}${entry.line === currentLine ? ' current' : ''}`;
     band.style.top = `${paddingTop + (entry.line - 1) * lineHeight - editor.scrollTop}px`;
     band.style.height = `${lineHeight}px`;
     frag.appendChild(band);
@@ -329,46 +314,25 @@ function lowerBound(entries, line) {
   return lo;
 }
 
-function clearEditableDiffs() {
+function setLiveStatus(message, error = false) {
+  if (!statusText) return;
+  statusText.textContent = message;
+  statusText.classList.toggle('error', error);
+}
+
+function resetLiveCompare() {
+  compareActive = false;
+  clearTimeout(liveTimer);
+  latestRequest += 1;
+  orderedDiffs = [];
+  lastGoodSummary = null;
+  currentDiffIndex = 0;
   diffsByPane[0] = [];
   diffsByPane[1] = [];
   for (let index = 0; index < 2; index += 1) {
-    const overlay = overlays[index];
-    const wrap = editors[index]?.closest('.editor-wrap');
-    overlay?.replaceChildren();
-    overlay?.classList.add('hidden');
-    wrap?.classList.remove('compare-editing');
+    overlays[index]?.replaceChildren();
+    overlays[index]?.classList.add('hidden');
+    editors[index]?.closest('.editor-wrap')?.classList.remove('compare-editing');
   }
-}
-
-function snapshotEditingPosition() {
-  return editors.map((editor) => ({
-    focused: document.activeElement === editor,
-    selectionStart: editor.selectionStart,
-    selectionEnd: editor.selectionEnd,
-    scrollTop: editor.scrollTop,
-    scrollLeft: editor.scrollLeft,
-  }));
-}
-
-function restoreEditSnapshot() {
-  if (!editSnapshot) return;
-  const snapshot = editSnapshot;
-  editSnapshot = null;
-
-  snapshot.forEach((saved, index) => {
-    const editor = editors[index];
-    if (!editor) return;
-    editor.scrollTop = saved.scrollTop;
-    editor.scrollLeft = saved.scrollLeft;
-    if (saved.focused && isVisible(editor)) {
-      const end = Math.min(editor.value.length, saved.selectionEnd);
-      const start = Math.min(end, saved.selectionStart);
-      editor.focus({ preventScroll: true });
-      try { editor.setSelectionRange(start, end); } catch (_) {}
-    }
-  });
-
-  renderOverlay(0);
-  renderOverlay(1);
+  compareBar?.classList.remove('live-stale');
 }
