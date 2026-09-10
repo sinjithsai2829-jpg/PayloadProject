@@ -1,9 +1,12 @@
 import {
   createComparisonSnapshot,
-  serializeComparisonSnapshot,
   parseComparisonSnapshot,
-  comparisonDownloadName,
 } from './comparison-file.js';
+import {
+  createPortableComparisonHtml,
+  parsePortableComparisonHtml,
+  portableComparisonDownloadName,
+} from './portable-comparison-html.js';
 
 const editors = [document.querySelector('#editor0'), document.querySelector('#editor1')];
 const panes = [...document.querySelectorAll('.pane')];
@@ -16,17 +19,17 @@ const syncInput = document.querySelector('.enhancement-sync input[type="checkbox
 const saveBtn = document.createElement('button');
 saveBtn.id = 'saveComparisonBtn';
 saveBtn.textContent = 'Save comparison';
-saveBtn.title = 'Download both payloads and the current comparison view';
+saveBtn.title = 'Download a browser-openable HTML file containing both payloads and the comparison view';
 
 const openBtn = document.createElement('button');
 openBtn.id = 'openComparisonBtn';
 openBtn.textContent = 'Open comparison';
-openBtn.title = 'Open a saved PayloadDiff comparison file';
+openBtn.title = 'Open a saved PayloadDiff HTML or legacy .payloaddiff comparison file';
 
 const openInput = document.createElement('input');
 openInput.id = 'openComparisonInput';
 openInput.type = 'file';
-openInput.accept = '.payloaddiff,application/json';
+openInput.accept = '.html,text/html,.payloaddiff,application/json';
 openInput.className = 'hidden';
 
 if (toolbarLeft) {
@@ -84,18 +87,19 @@ function saveComparison() {
       right: editors[1]?.value || '',
       ui: captureUiState(),
     });
-    const text = serializeComparisonSnapshot(snapshot);
-    const blob = new Blob([text], { type: 'application/json' });
+    const html = createPortableComparisonHtml(snapshot);
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = comparisonDownloadName();
+    anchor.download = portableComparisonDownloadName();
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
-    setStatus('Comparison saved. The file contains both payloads and can be reopened in PayloadDiff.');
+    setStatus('Comparison saved as a browser HTML file. Double-click it to reopen the comparison in your default browser.');
     log('info', 'comparison-file.saved', {
+      format: 'portable-html',
       mode: snapshot.mode,
       chars: [snapshot.payloads.left.length, snapshot.payloads.right.length],
       currentDiffIndex: snapshot.ui.currentDiffIndex,
@@ -113,10 +117,13 @@ async function openComparison(event) {
 
   try {
     setStatus('Opening saved comparison…');
-    const snapshot = parseComparisonSnapshot(await file.text());
+    const text = await file.text();
+    const isPortableHtml = file.name.toLowerCase().endsWith('.html') || text.includes('id="payloaddiff-snapshot"');
+    const snapshot = isPortableHtml ? parsePortableComparisonHtml(text) : parseComparisonSnapshot(text);
     await restoreSnapshot(snapshot);
     setStatus(`Saved ${snapshot.mode.toUpperCase()} comparison restored.`);
     log('info', 'comparison-file.opened', {
+      format: isPortableHtml ? 'portable-html' : 'legacy-payloaddiff',
       mode: snapshot.mode,
       chars: [snapshot.payloads.left.length, snapshot.payloads.right.length],
       currentDiffIndex: snapshot.ui.currentDiffIndex,
@@ -165,10 +172,6 @@ async function restoreSnapshot(snapshot) {
   await frame();
   await frame();
   restoreScroll(snapshot.ui);
-
-  // Restoring the saved Code scroll position also feeds the normal live
-  // navigator, which re-selects the nearest saved difference without running a
-  // second comparison.
   await frame();
   restoreScroll(snapshot.ui);
 }
