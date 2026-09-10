@@ -1,11 +1,11 @@
 {
   "name": "payload-diff",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "node server.mjs",
-    "test": "node test.mjs",
+    "test": "node test.mjs && node test-runtime.mjs",
     "build": "node build.mjs"
   }
 }
