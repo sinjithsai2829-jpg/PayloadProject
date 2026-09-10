@@ -38,3 +38,9 @@ export function visibleCenterLine({ scrollTop, clientHeight, lineHeight, padding
   const centerY = scrollTop + clientHeight / 2 - paddingTop;
   return Math.max(1, Math.round(centerY / safeHeight) + 1);
 }
+
+export function lineFromClientY({ clientY, rectTop, scrollTop, lineHeight, paddingTop = 0 }) {
+  const safeHeight = Math.max(1, lineHeight || 1);
+  const documentY = clientY - rectTop + scrollTop - paddingTop;
+  return Math.max(1, Math.floor(documentY / safeHeight) + 1);
+}
