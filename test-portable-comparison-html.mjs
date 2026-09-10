@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { createComparisonSnapshot } from './src/comparison-file.js';
 import {
   createPortableComparisonHtml,
   parsePortableComparisonHtml,
   portableComparisonDownloadName,
-} from './src/portable-comparison-html.js';
+  extractPortableRuntimeScript,
+} from './src/portable-comparison-html-safe.js';
 
 const left = '{\n  "message": "left </script><script>alert(1)</script>",\n  "value": 1\n}';
 const right = '{\n  "message": "right",\n  "value": 2\n}';
@@ -39,6 +41,13 @@ assert.equal(restored.payloads.right, right);
 assert.equal(restored.mode, 'json');
 assert.equal(restored.ui.currentDiffIndex, 3);
 assert.deepEqual(restored.ui.codeScroll[0], { top: 500, left: 0 });
+
+// Regression: the downloaded HTML must contain syntactically valid executable
+// JavaScript. The old generator emitted literal newlines inside quoted '\n'
+// separators, so the browser stopped before assigning either payload textarea.
+const runtime = extractPortableRuntimeScript(html);
+assert.doesNotThrow(() => new vm.Script(runtime));
+assert.ok(runtime.includes("split('\\n')"));
 
 const name = portableComparisonDownloadName(new Date('2026-09-10T01:54:44.954Z'));
 assert.equal(name, 'payloaddiff-comparison-2026-09-10T01-54-44-954Z.html');
