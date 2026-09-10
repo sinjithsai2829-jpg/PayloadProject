@@ -1,4 +1,4 @@
-import { formatPayload, comparePayloads } from './src/core.js';
+import { formatPayload, comparePayloads, buildXmlDiffEvents } from './src/core.js';
 import { searchJsonTree } from './src/search.js';
 import { compareJsonValues, attachPrettyJsonLineNumbers } from './src/fast-engine.js';
 import assert from 'node:assert/strict';
@@ -31,6 +31,34 @@ assert.ok(ordered.some((diff) => diff.path === '$.nested.y' && diff.rightLine &&
 const xc = comparePayloads({ mode: 'xml', left: '<r><a>1</a><b>2</b></r>', right: '<r><a>1</a><x>9</x><b>2</b></r>' });
 assert.equal(xc.identical, false);
 assert.ok(xc.summary.added > 0);
+assert.ok(Array.isArray(xc.diffs));
+assert.equal(xc.diffs.length, xc.summary.added + xc.summary.removed + xc.summary.modified);
+assert.ok(xc.diffs.every((diff) => diff.leftLine || diff.rightLine));
+
+// Cross-format contract: XML replacements must be one modified navigation item,
+// not an added + removed pair plus another synthetic modified count.
+const xmlReplacement = buildXmlDiffEvents([4], [4]);
+assert.deepEqual(xmlReplacement.summary, { added: 0, removed: 0, modified: 1 });
+assert.equal(xmlReplacement.diffs.length, 1);
+assert.deepEqual(xmlReplacement.diffs[0], {
+  path: '$xml[0]',
+  type: 'modified',
+  leftLine: 4,
+  rightLine: 4,
+});
+
+const xmlMixed = buildXmlDiffEvents([3, 8], [3, 7, 12]);
+assert.equal(xmlMixed.diffs.length, 3);
+assert.deepEqual(xmlMixed.summary, { added: 1, removed: 0, modified: 2 });
+assert.equal(xmlMixed.summary.added + xmlMixed.summary.removed + xmlMixed.summary.modified, xmlMixed.diffs.length);
+
+const xmlReplaceCompare = comparePayloads({
+  mode: 'xml',
+  left: '<root><name>Old</name><status>ACTIVE</status></root>',
+  right: '<root><name>New</name><status>ACTIVE</status></root>',
+});
+assert.equal(xmlReplaceCompare.summary.added + xmlReplaceCompare.summary.removed + xmlReplaceCompare.summary.modified, xmlReplaceCompare.diffs.length);
+assert.ok(xmlReplaceCompare.diffs.some((diff) => diff.type === 'modified'));
 
 const searchable = {
   offers: [
@@ -86,4 +114,5 @@ assert.equal(fast.summary.added, 1);
 console.log(`PASS: huge JSON formatted to ${hugeResult.lineCount.toLocaleString()} lines in ${elapsed} ms under Node.`);
 console.log(`PASS: fast structural comparison of ~20k records completed in ${fastElapsed} ms under Node.`);
 console.log(`PASS: huge JSON tree searched in ${hugeSearchElapsed} ms under Node.`);
+console.log('PASS: JSON/XML comparison parity contract verified.');
 console.log('All core and fast-engine regression tests passed.');
