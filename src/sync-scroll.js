@@ -139,6 +139,13 @@ function alignViewsFromLeft() {
   }
 }
 
+function updateSyncUiState() {
+  document.documentElement.classList.toggle('sync-scroll-enabled', !!syncInput?.checked);
+}
+
+updateSyncUiState();
+
 syncInput?.addEventListener('change', () => {
+  updateSyncUiState();
   if (syncInput.checked) requestAnimationFrame(alignViewsFromLeft);
 });
