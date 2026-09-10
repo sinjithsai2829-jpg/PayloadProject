@@ -6,6 +6,7 @@ import {
   createPortableComparisonHtml,
   parsePortableComparisonHtml,
   portableComparisonDownloadName,
+  PORTABLE_EXPORT_VERSION,
 } from './portable-comparison-html-safe.js';
 
 const editors = [document.querySelector('#editor0'), document.querySelector('#editor1')];
@@ -101,7 +102,7 @@ function saveComparison() {
     setStatus(`Comparison saved as ${filename}. Double-click it to reopen the comparison in your default browser.`);
     log('info', 'comparison-file.saved', {
       format: 'portable-html',
-      exportVersion: 'browser-v2',
+      exportVersion: PORTABLE_EXPORT_VERSION,
       filename,
       htmlChars: html.length,
       mode: snapshot.mode,
