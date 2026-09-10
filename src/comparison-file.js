@@ -71,9 +71,19 @@ function normalizeUi(ui) {
     views: views.map((view) => view === 'tree' ? 'tree' : 'code'),
     syncEnabled: ui.syncEnabled !== false,
     currentDiffIndex: Number.isInteger(ui.currentDiffIndex) && ui.currentDiffIndex >= 0 ? ui.currentDiffIndex : 0,
+    selectedLines: normalizeSelectedLines(ui.selectedLines),
     codeScroll: normalizeScrollPair(ui.codeScroll),
     treeScroll: normalizeScrollPair(ui.treeScroll),
   };
+}
+
+function normalizeSelectedLines(value) {
+  const pair = Array.isArray(value) ? value.slice(0, 2) : [];
+  while (pair.length < 2) pair.push(null);
+  return pair.map((line) => {
+    const number = Number(line);
+    return Number.isInteger(number) && number > 0 ? number : null;
+  });
 }
 
 function normalizeScrollPair(value) {
