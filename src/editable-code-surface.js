@@ -6,21 +6,7 @@ const gutterRows = [];
 const renderFrames = [0, 0];
 
 installStyles();
-
-for (let index = 0; index < editors.length; index += 1) {
-  installPane(index);
-}
-
-// The old virtualized Large view is intentionally removed from the user-facing
-// workflow. It is read-only and conflicts with the core requirement that Code
-// stays editable while comparison remains active. The virtual renderer may stay
-// in the source for future reuse, but this module keeps the live UI on the
-// editable Code surface.
-document.querySelectorAll('.enhancement-edit').forEach((button) => {
-  button.classList.add('hidden');
-  button.setAttribute('aria-hidden', 'true');
-  button.tabIndex = -1;
-});
+for (let index = 0; index < editors.length; index += 1) installPane(index);
 
 function installPane(index) {
   const pane = panes[index];
@@ -40,34 +26,16 @@ function installPane(index) {
   gutters[index] = gutter;
   gutterRows[index] = rows;
 
-  const enforceEditableCode = () => {
-    const codeActive = pane.querySelector('.view-btn[data-view="code"]')?.classList.contains('active');
+  const refreshSurface = () => {
     const treeActive = pane.querySelector('.view-btn[data-view="tree"]')?.classList.contains('active');
-    const virtual = pane.querySelector('.virtual-code');
-
-    if (codeActive && !treeActive) {
-      virtual?.classList.add('hidden');
-      editor.classList.remove('hidden');
-    }
-
-    gutter.classList.toggle('hidden', !codeActive || treeActive || editor.classList.contains('hidden'));
+    if (!treeActive) editor.classList.remove('hidden');
+    gutter.classList.toggle('hidden', !!treeActive || editor.classList.contains('hidden'));
     scheduleRender(index);
   };
 
   editor.addEventListener('scroll', () => scheduleRender(index), { passive: true });
   editor.addEventListener('input', () => scheduleRender(index));
-
-  pane.querySelector('.view-tabs')?.addEventListener('click', () => {
-    requestAnimationFrame(enforceEditableCode);
-  });
-
-  // enhancements.js can still try to reveal its detached/read-only virtual view
-  // after formatting or switching back from Tree. Observe the surface classes
-  // and immediately restore the editable Code surface when Code is selected.
-  const virtual = pane.querySelector('.virtual-code');
-  const observer = new MutationObserver(() => requestAnimationFrame(enforceEditableCode));
-  observer.observe(editor, { attributes: true, attributeFilter: ['class'] });
-  if (virtual) observer.observe(virtual, { attributes: true, attributeFilter: ['class'] });
+  pane.querySelector('.view-tabs')?.addEventListener('click', () => requestAnimationFrame(refreshSurface));
 
   if (typeof ResizeObserver !== 'undefined') {
     const resize = new ResizeObserver(() => scheduleRender(index));
@@ -76,7 +44,7 @@ function installPane(index) {
     window.addEventListener('resize', () => scheduleRender(index), { passive: true });
   }
 
-  enforceEditableCode();
+  refreshSurface();
 }
 
 function scheduleRender(index) {
@@ -98,11 +66,11 @@ function renderLineNumbers(index) {
   const paddingTop = parseFloat(style.paddingTop) || 0;
   const paddingBottom = parseFloat(style.paddingBottom) || 0;
   const contentHeight = Math.max(0, editor.scrollHeight - paddingTop - paddingBottom);
-  const estimatedTotalLines = Math.max(1, Math.round(contentHeight / lineHeight));
+  const totalLines = Math.max(1, Math.round(contentHeight / lineHeight));
   const overscan = 8;
   const first = Math.max(1, Math.floor((editor.scrollTop - paddingTop) / lineHeight) + 1 - overscan);
   const visibleCount = Math.ceil(editor.clientHeight / lineHeight) + overscan * 2 + 2;
-  const last = Math.min(estimatedTotalLines, first + visibleCount);
+  const last = Math.min(totalLines, first + visibleCount);
 
   const fragment = document.createDocumentFragment();
   for (let line = first; line <= last; line += 1) {
@@ -122,9 +90,7 @@ function installStyles() {
   const style = document.createElement('style');
   style.id = 'editable-code-surface-styles';
   style.textContent = `
-    .editor.editor-with-line-numbers {
-      padding-left: 78px;
-    }
+    .editor.editor-with-line-numbers { padding-left: 78px; }
     .editor-line-gutter {
       position: absolute;
       z-index: 5;
@@ -138,10 +104,7 @@ function installStyles() {
       border-right: 1px solid #253149;
       user-select: none;
     }
-    .editor-line-gutter-rows {
-      position: absolute;
-      inset: 0;
-    }
+    .editor-line-gutter-rows { position: absolute; inset: 0; }
     .editor-line-number {
       position: absolute;
       left: 0;
@@ -153,10 +116,7 @@ function installStyles() {
       font-size: 12px;
       white-space: nowrap;
     }
-    .editor:focus + .editor-line-gutter,
-    .editor-wrap:focus-within .editor-line-gutter {
-      border-right-color: #3b4c70;
-    }
+    .editor-wrap:focus-within .editor-line-gutter { border-right-color: #3b4c70; }
   `;
   document.head.appendChild(style);
 }
