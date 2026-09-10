@@ -33,9 +33,7 @@ openInput.type = 'file';
 openInput.accept = '.html,text/html,.payloaddiff,application/json';
 openInput.className = 'hidden';
 
-if (toolbarLeft) {
-  toolbarLeft.append(saveBtn, openBtn, openInput);
-}
+if (toolbarLeft) toolbarLeft.append(saveBtn, openBtn, openInput);
 
 saveBtn.addEventListener('click', saveComparison);
 openBtn.addEventListener('click', () => openInput.click());
@@ -47,8 +45,7 @@ function currentMode() {
 
 function comparisonIsActive() {
   if (!compareBar || compareBar.classList.contains('hidden')) return false;
-  if (currentMode() === 'json') return !!window.PayloadDiffCompareSession?.isActive?.();
-  return true;
+  return !!window.PayloadDiffCompareSession?.isActive?.();
 }
 
 function activeView(index) {
@@ -56,22 +53,16 @@ function activeView(index) {
 }
 
 function scrollState(element) {
-  return {
-    top: element?.scrollTop || 0,
-    left: element?.scrollLeft || 0,
-  };
+  return { top: element?.scrollTop || 0, left: element?.scrollLeft || 0 };
 }
 
 function captureUiState() {
-  const codeScroll = editors.map((editor) => scrollState(editor));
-  const treeScroll = panes.map((pane) => scrollState(pane.querySelector('.tree-view')));
-
   return {
     views: [activeView(0), activeView(1)],
     syncEnabled: syncInput?.checked ?? true,
     currentDiffIndex: window.PayloadDiffCompareSession?.getCurrentDiffIndex?.() ?? 0,
-    codeScroll,
-    treeScroll,
+    codeScroll: editors.map((editor) => scrollState(editor)),
+    treeScroll: panes.map((pane) => scrollState(pane.querySelector('.tree-view'))),
   };
 }
 
@@ -157,9 +148,7 @@ async function restoreSnapshot(snapshot) {
     syncInput.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  for (let index = 0; index < 2; index += 1) {
-    panes[index]?.querySelector('.view-btn[data-view="code"]')?.click();
-  }
+  for (let index = 0; index < 2; index += 1) panes[index]?.querySelector('.view-btn[data-view="code"]')?.click();
   await frame();
 
   compareBtn?.click();
@@ -199,8 +188,9 @@ async function waitForComparison(mode) {
   while (performance.now() - started < 30000) {
     const busy = document.body.classList.contains('busy');
     const visible = !!compareBar && !compareBar.classList.contains('hidden');
-    const jsonReady = mode !== 'json' || !!window.PayloadDiffCompareSession?.isActive?.();
-    if (!busy && visible && jsonReady) return;
+    const sessionReady = !!window.PayloadDiffCompareSession?.isActive?.();
+    const sameMode = (window.PayloadDiffCompareSession?.getMode?.() || mode) === mode;
+    if (!busy && visible && sessionReady && sameMode) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error('Timed out while rebuilding the saved comparison.');
