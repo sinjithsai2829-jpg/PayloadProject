@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const boot = await readFile(new URL('./src/boot.js', import.meta.url), 'utf8');
+const main = await readFile(new URL('./src/main.js', import.meta.url), 'utf8');
 const live = await readFile(new URL('./src/editable-compare.js', import.meta.url), 'utf8');
 const smoothWorker = await readFile(new URL('./src/smooth-worker.js', import.meta.url), 'utf8');
 const sync = await readFile(new URL('./src/sync-scroll.js', import.meta.url), 'utf8');
@@ -16,11 +17,38 @@ assert.ok(boot.includes("./persistence.js"));
 assert.ok(boot.includes("./editable-code-surface.js"));
 assert.ok(!boot.includes("./diff-display.js"));
 
-// Regression: live editing must not trigger the heavyweight main Compare flow.
+// Regression: editing during an active JSON comparison must not destroy the
+// comparison session. main.js delegates live refresh to editable-compare.js.
+assert.ok(main.includes('isLiveJsonComparisonActive()'));
+assert.ok(main.includes('if (!isLiveJsonComparisonActive()) clearComparison();'));
+assert.ok(main.includes('payloaddiff:live-compare-updated'));
+assert.ok(main.includes('PayloadDiffCompareSession'));
+
+// Clear must fully reset stale summary/navigation state, not just hide the bar.
+assert.ok(main.includes("els.compareSummary.innerHTML = ''"));
+assert.ok(main.includes("els.diffPosition.textContent = '0 of 0'"));
+assert.ok(main.includes('els.prevDiff.disabled = true'));
+assert.ok(main.includes('els.nextDiff.disabled = true'));
+
+// Live editing must not trigger the heavyweight main Compare flow.
 assert.ok(live.includes("./smooth-worker.js"));
 assert.ok(!live.includes('compareBtn?.click()'));
 assert.ok(!live.includes('compareBtn.click()'));
 assert.ok(live.includes('220'));
+assert.ok(live.includes('window.PayloadDiffCompareSession'));
+assert.ok(live.includes('payloaddiff:live-compare-updated'));
+
+// Regression from diagnostics: temporarily invalid JSON keeps the comparison
+// session active but hides stale line highlights and disables navigation until
+// both panes are valid again.
+assert.ok(live.includes('invalidSides'));
+assert.ok(live.includes('hideOverlays()'));
+assert.ok(live.includes("disableNavigatorForEditing('Paused')"));
+assert.ok(live.includes('comparison will resume automatically when JSON is valid'));
+assert.ok(live.includes('markInvalidPanes'));
+assert.ok(smoothWorker.includes('invalidSides'));
+assert.ok(smoothWorker.includes("side: 'left'"));
+assert.ok(smoothWorker.includes("side: 'right'"));
 
 // Runtime should use the single fast engine in one worker.
 assert.ok(smoothWorker.includes("./fast-engine.js"));
@@ -63,5 +91,15 @@ assert.ok(persistence.includes('deleteCurrentSession'));
 assert.ok(persistence.includes("clearBtn?.addEventListener('click'"));
 assert.ok(persistence.includes("editor.dispatchEvent(new Event('input'"));
 assert.ok(persistence.includes('STALE_AFTER_MS'));
+
+// Regression from diagnostics: scrolling must not continuously rewrite the
+// multi-KB payload record. Saves are deduplicated and pagehide captures the
+// latest scroll position once before refresh/navigation.
+assert.ok(!persistence.includes("editor?.addEventListener('scroll'"));
+assert.ok(persistence.includes('lastSavedSignature'));
+assert.ok(persistence.includes('stateSignature(record)'));
+assert.ok(persistence.includes("addEventListener('pagehide'"));
+assert.ok(persistence.includes('saveNow({ force: true })'));
+assert.ok(!persistence.includes('virtual-code'));
 
 console.log('All runtime wiring regression tests passed.');
