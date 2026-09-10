@@ -33,19 +33,11 @@ function showEditableCode(index) {
   const codeTab = pane.querySelector('.view-btn[data-view="code"]');
   const treeTab = pane.querySelector('.view-btn[data-view="tree"]');
   const tree = pane.querySelector('.tree-view');
-  const virtual = pane.querySelector('.virtual-code');
-  const virtualToggle = pane.querySelector('.enhancement-edit');
 
   codeTab?.classList.add('active');
   treeTab?.classList.remove('active');
   tree?.classList.add('hidden');
-  virtual?.classList.add('hidden');
   editor.classList.remove('hidden');
-
-  if (virtualToggle) {
-    virtualToggle.disabled = !editor.value.trim();
-    virtualToggle.textContent = 'Large view';
-  }
 }
 
 function keepFormattedTextEditable() {
@@ -55,15 +47,9 @@ function keepFormattedTextEditable() {
 function restoreCurrentComparisonView() {
   for (let index = 0; index < panes.length; index += 1) {
     const treeTab = panes[index].querySelector('.view-btn[data-view="tree"]');
-    // Compare must not force Tree view. If the user was already in Tree, leave
-    // it alone; otherwise keep Code as the editable comparison surface.
     if (!treeTab?.classList.contains('active')) showEditableCode(index);
   }
 }
 
-// Formatting leaves the normalized payload directly editable.
 formatBtn?.addEventListener('click', () => afterBusy(keepFormattedTextEditable), true);
-
-// Comparing preserves the view the user chose. Code remains editable and Tree
-// remains available as an optional navigation view. No automatic scroll occurs.
 compareBtn?.addEventListener('click', () => afterBusy(restoreCurrentComparisonView), true);
