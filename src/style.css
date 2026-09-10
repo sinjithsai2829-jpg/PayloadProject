@@ -69,6 +69,7 @@ button.primary:hover:not(:disabled) { background: #3b70e6; }
 .code-line-text { padding: 0 14px; min-width: max-content; }
 .code-row.line-added { background: rgba(34,197,94,.11); border-left-color: #22c55e; }
 .code-row.line-removed { background: rgba(239,68,68,.11); border-left-color: #ef4444; }
+.code-row.line-modified { background: rgba(245,158,11,.14); border-left-color: #f59e0b; }
 .code-row.line-focus { outline: 1px solid rgba(96,165,250,.75); outline-offset: -1px; }
 
 .tree-view { overflow: auto; padding: 8px 0 24px; contain: strict; }
