@@ -5,18 +5,22 @@ import {
 
 export { parsePortableComparisonHtml };
 
+export const PORTABLE_EXPORT_VERSION = 'browser-v3';
+
 export function portableComparisonDownloadName(date = new Date()) {
   const stamp = date.toISOString().replace(/[:.]/g, '-');
-  return `payloaddiff-browser-v2-${stamp}.html`;
+  return `payloaddiff-${PORTABLE_EXPORT_VERSION}-${stamp}.html`;
 }
 
-// The portable viewer is generated from a template literal. Repair the legacy
-// inline runtime escapes, then add a static payload fallback directly into both
-// textareas. That way a saved file can never look empty merely because its
-// interactive JavaScript failed to start.
+// The original self-contained viewer is generated from a large template literal.
+// Some regular-expression backslashes inside that generated runtime can be
+// consumed while the template is evaluated, producing invalid JavaScript in the
+// downloaded HTML. Keep the existing viewer layout, but repair the generated
+// runtime before it is saved and prefill both payloads as a fail-safe.
 export function createPortableComparisonHtml(snapshot) {
   let html = createLegacyPortableComparisonHtml(snapshot);
   html = repairInlineRuntimeEscapes(html);
+  html = repairGeneratedRuntimeFunctions(html);
   html = addExportVersionMarker(html);
   html = prefillPayloadTextareas(html, snapshot);
   html = prefillStaticMetadata(html, snapshot);
@@ -30,18 +34,71 @@ export function repairInlineRuntimeEscapes(html) {
     .join("split('\\n')");
 }
 
+// Remove the two path regexes from the generated browser runtime completely.
+// A tiny scanner is easier to reason about and cannot be corrupted by nested
+// template-literal escaping.
+export function repairGeneratedRuntimeFunctions(html) {
+  let output = String(html);
+
+  const safeJoinPath = [
+    "function joinPath(path,key){var text=String(key);return isSimplePathKey(text)?path+'.'+text:path+'['+JSON.stringify(text)+']';}",
+    "function isSimplePathKey(text){if(!text)return false;var first=text.charCodeAt(0);if(!isPathKeyStart(first))return false;for(var i=1;i<text.length;i++){if(!isPathKeyPart(text.charCodeAt(i)))return false;}return true;}",
+    "function isPathKeyStart(code){return(code>=65&&code<=90)||(code>=97&&code<=122)||code===95||code===36;}",
+    "function isPathKeyPart(code){return isPathKeyStart(code)||(code>=48&&code<=57);}",
+  ].join('');
+  output = replaceGeneratedFunction(output, 'function joinPath(path,key){', 'function typeOf', safeJoinPath);
+
+  const safePathAncestors = [
+    "function pathAncestors(path){",
+    "var out=['$'];if(!path||path==='$')return out;",
+    "var current='$',i=1;",
+    "while(i<path.length){",
+    "var start=i;",
+    "if(path.charCodeAt(i)===46){",
+    "i++;while(i<path.length&&path.charCodeAt(i)!==46&&path.charCodeAt(i)!==91)i++;",
+    "}else if(path.charCodeAt(i)===91){",
+    "i++;var quoted=false,escaped=false;",
+    "while(i<path.length){var code=path.charCodeAt(i++);",
+    "if(escaped){escaped=false;continue;}",
+    "if(code===92){escaped=true;continue;}",
+    "if(code===34){quoted=!quoted;continue;}",
+    "if(code===93&&!quoted)break;}",
+    "}else{i++;continue;}",
+    "current+=path.slice(start,i);out.push(current);",
+    "}",
+    "return out;",
+    "}",
+  ].join('');
+  output = replaceGeneratedFunction(output, 'function pathAncestors(path){', 'function findTreeRow', safePathAncestors);
+
+  return output;
+}
+
 export function extractPortableRuntimeScript(html) {
-  const scripts = [...String(html).matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
-  // Snapshot JSON and the small error reporter appear before the main runtime.
-  // The last script is always the executable self-contained viewer runtime.
-  if (scripts.length < 2) throw new Error('Portable comparison runtime script was not found.');
-  return scripts[scripts.length - 1][1];
+  const marker = "<script>\n(function(){";
+  const start = String(html).lastIndexOf(marker);
+  if (start < 0) throw new Error('Portable comparison runtime script was not found.');
+  const bodyStart = start + '<script>'.length;
+  const end = String(html).indexOf('</script>', bodyStart);
+  if (end < 0) throw new Error('Portable comparison runtime script was not terminated.');
+  return String(html).slice(bodyStart, end);
+}
+
+function replaceGeneratedFunction(html, startMarker, endMarker, replacement) {
+  const start = html.indexOf(startMarker);
+  if (start < 0) throw new Error(`Portable runtime repair failed: ${startMarker} was not found.`);
+  const end = html.indexOf(endMarker, start + startMarker.length);
+  if (end < 0) throw new Error(`Portable runtime repair failed: ${endMarker} was not found.`);
+  return html.slice(0, start) + replacement + html.slice(end);
 }
 
 function addExportVersionMarker(html) {
   return String(html)
-    .replace('<title>PayloadDiff Saved Comparison</title>', '<title>PayloadDiff Saved Comparison</title>\n<meta name="payloaddiff-export-version" content="browser-v2" />')
-    .replace('<body>', '<body data-payloaddiff-export="browser-v2">');
+    .replace(
+      '<title>PayloadDiff Saved Comparison</title>',
+      `<title>PayloadDiff Saved Comparison</title>\n<meta name="payloaddiff-export-version" content="${PORTABLE_EXPORT_VERSION}" />`,
+    )
+    .replace('<body>', `<body data-payloaddiff-export="${PORTABLE_EXPORT_VERSION}">`);
 }
 
 function prefillPayloadTextareas(html, snapshot) {
@@ -62,7 +119,10 @@ function prefillStaticMetadata(html, snapshot) {
   const rightLines = lineCount(snapshot.payloads.right);
   const createdAt = snapshot.createdAt || '';
   return String(html)
-    .replace('<p id="savedMeta">Portable comparison file</p>', `<p id="savedMeta">${escapeHtmlText(snapshot.mode.toUpperCase())} comparison · browser-v2 · ${escapeHtmlText(createdAt)}</p>`)
+    .replace(
+      '<p id="savedMeta">Portable comparison file</p>',
+      `<p id="savedMeta">${escapeHtmlText(snapshot.mode.toUpperCase())} comparison · ${PORTABLE_EXPORT_VERSION} · ${escapeHtmlText(createdAt)}</p>`,
+    )
     .replace('<span id="meta0"></span>', `<span id="meta0">${leftLines.toLocaleString()} lines</span>`)
     .replace('<span id="meta1"></span>', `<span id="meta1">${rightLines.toLocaleString()} lines</span>`)
     .replace('<div id="status" class="status">Ready</div>', '<div id="status" class="status">Loading saved comparison…</div>');
