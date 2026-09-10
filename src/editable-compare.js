@@ -1,3 +1,5 @@
+import { buildDiffLineIndex, nearestDiffIndexForLine, visibleCenterLine } from './diff-navigation.js';
+
 const editors = [document.querySelector('#editor0'), document.querySelector('#editor1')];
 const panes = [...document.querySelectorAll('.pane')];
 const compareBtn = document.querySelector('#compareBtn');
@@ -18,12 +20,19 @@ let orderedDiffs = [];
 let lastGoodSummary = null;
 let lastGoodElapsed = 0;
 let invalidSides = [];
+let scrollTrackFrame = 0;
+let pendingScrollPane = 0;
+let suppressScrollTrackingUntil = 0;
+let userScrollPane = -1;
+let userScrollPaneUntil = 0;
 const workerPending = new Map();
 const diffsByPane = [[], []];
+const diffLinesByPane = [[], []];
 
 window.PayloadDiffCompareSession = {
   isActive: () => compareActive,
   getInvalidSides: () => invalidSides.map((item) => ({ ...item })),
+  getCurrentDiffIndex: () => currentDiffIndex,
 };
 
 const worker = new Worker(new URL('./smooth-worker.js', import.meta.url), { type: 'module' });
@@ -107,7 +116,23 @@ function createOverlay(editor, index) {
   overlay.className = 'editor-diff-overlay hidden';
   overlay.dataset.pane = String(index);
   wrap.insertBefore(overlay, editor);
-  editor.addEventListener('scroll', () => renderOverlay(index), { passive: true });
+
+  editor.addEventListener('scroll', () => {
+    renderOverlay(index);
+    scheduleNavigatorFromScroll(index);
+  }, { passive: true });
+
+  // Remember which pane the user is actively manipulating. The synchronized
+  // partner pane also fires a scroll event; ignoring that mirrored event avoids
+  // the counter bouncing between slightly different line positions.
+  const markUserScrollSource = () => {
+    userScrollPane = index;
+    userScrollPaneUntil = performance.now() + 900;
+  };
+  editor.addEventListener('wheel', markUserScrollSource, { passive: true });
+  editor.addEventListener('pointerdown', markUserScrollSource, { passive: true });
+  editor.addEventListener('touchstart', markUserScrollSource, { passive: true });
+
   window.addEventListener('resize', () => renderOverlay(index), { passive: true });
   return overlay;
 }
@@ -184,6 +209,7 @@ function handleFastNavigation(event, delta) {
   event.stopImmediatePropagation();
   currentDiffIndex = (currentDiffIndex + delta + orderedDiffs.length) % orderedDiffs.length;
   updateNavigator();
+  publishCoreComparisonState();
   scrollToCurrentDiff();
 }
 
@@ -207,6 +233,8 @@ async function refreshFastComparison({ preserveNavigator }) {
 
     diffsByPane[0] = buildLineTypes(orderedDiffs, 0);
     diffsByPane[1] = buildLineTypes(orderedDiffs, 1);
+    diffLinesByPane[0] = buildDiffLineIndex(orderedDiffs, 0);
+    diffLinesByPane[1] = buildDiffLineIndex(orderedDiffs, 1);
 
     renderSummary(result);
     updateNavigator();
@@ -214,16 +242,7 @@ async function refreshFastComparison({ preserveNavigator }) {
     renderOverlay(1);
     compareBar?.classList.remove('live-stale', 'live-invalid');
     setLiveStatus(result.identical ? `Identical (${result.elapsedMs} ms)` : `Live comparison ${result.elapsedMs} ms`);
-
-    window.dispatchEvent(new CustomEvent('payloaddiff:live-compare-updated', {
-      detail: {
-        diffs: orderedDiffs.map(({ path, type }) => ({ path, type })),
-        summary: result.summary,
-        identical: result.identical,
-        elapsedMs: result.elapsedMs,
-        currentDiffIndex,
-      },
-    }));
+    publishCoreComparisonState(result.identical);
   } catch (error) {
     if (request !== latestRequest || !compareActive) return;
     invalidSides = Array.isArray(error.invalidSides) ? error.invalidSides : [];
@@ -273,9 +292,66 @@ function disableNavigatorForEditing(label) {
   if (nextDiff) nextDiff.disabled = true;
 }
 
+function scheduleNavigatorFromScroll(index) {
+  if (!compareActive || invalidSides.length || currentMode() !== 'json' || !orderedDiffs.length) return;
+  if (!isVisible(editors[index])) return;
+  if (performance.now() < suppressScrollTrackingUntil) return;
+  if (performance.now() < userScrollPaneUntil && userScrollPane !== index) return;
+
+  pendingScrollPane = index;
+  if (scrollTrackFrame) return;
+  scrollTrackFrame = requestAnimationFrame(() => {
+    scrollTrackFrame = 0;
+    syncNavigatorToScroll(pendingScrollPane);
+  });
+}
+
+function syncNavigatorToScroll(index) {
+  const editor = editors[index];
+  const entries = diffLinesByPane[index];
+  if (!editor || !entries.length || !isVisible(editor)) return;
+
+  const computed = getComputedStyle(editor);
+  const lineHeight = parseFloat(computed.lineHeight) || 20;
+  const paddingTop = parseFloat(computed.paddingTop) || 0;
+  const centerLine = visibleCenterLine({
+    scrollTop: editor.scrollTop,
+    clientHeight: editor.clientHeight,
+    lineHeight,
+    paddingTop,
+  });
+  const nearest = nearestDiffIndexForLine(entries, centerLine);
+  if (nearest < 0 || nearest === currentDiffIndex) return;
+
+  currentDiffIndex = nearest;
+  updateNavigator();
+  renderOverlay(0);
+  renderOverlay(1);
+  publishCoreComparisonState();
+}
+
+function publishCoreComparisonState(identical = null) {
+  if (!lastGoodSummary) return;
+  const total = lastGoodSummary.added + lastGoodSummary.removed + lastGoodSummary.modified;
+  window.dispatchEvent(new CustomEvent('payloaddiff:live-compare-updated', {
+    detail: {
+      diffs: orderedDiffs.map(({ path, type }) => ({ path, type })),
+      summary: lastGoodSummary,
+      identical: identical == null ? total === 0 : identical,
+      elapsedMs: lastGoodElapsed,
+      currentDiffIndex,
+    },
+  }));
+}
+
 function scrollToCurrentDiff() {
   const diff = orderedDiffs[currentDiffIndex];
   if (!diff) return;
+
+  // Next/Previous navigation intentionally moves the editors. Ignore those
+  // synthetic scroll events briefly so the scroll tracker cannot immediately
+  // reinterpret the position and change the selected diff again.
+  suppressScrollTrackingUntil = performance.now() + 350;
   scrollEditorToLine(0, diff.leftLine || diff.rightLine);
   scrollEditorToLine(1, diff.rightLine || diff.leftLine);
   renderOverlay(0);
@@ -390,6 +466,11 @@ function resetLiveCompare() {
   invalidSides = [];
   diffsByPane[0] = [];
   diffsByPane[1] = [];
+  diffLinesByPane[0] = [];
+  diffLinesByPane[1] = [];
+  suppressScrollTrackingUntil = 0;
+  userScrollPane = -1;
+  userScrollPaneUntil = 0;
   hideOverlays();
   clearInvalidPaneMarkers();
   compareBar?.classList.remove('live-stale', 'live-invalid');
