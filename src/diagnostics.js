@@ -8,6 +8,8 @@ import {
 } from './diagnostics-core.js';
 
 const STORAGE_KEY = 'payloaddiff:diagnostics:v1';
+const APP_VERSION = '0.3.4';
+const EXPORT_FORMAT_VERSION = 'browser-v2';
 const SESSION_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 const startedAt = performance.now();
 const editors = [document.querySelector('#editor0'), document.querySelector('#editor1')];
@@ -27,7 +29,8 @@ installInteractionLogging();
 log('info', 'session.started', {
   sessionId: SESSION_ID,
   page: location.pathname,
-  version: '0.3.0',
+  version: APP_VERSION,
+  exportFormatVersion: EXPORT_FORMAT_VERSION,
   userAgent: navigator.userAgent,
   hardwareConcurrency: navigator.hardwareConcurrency || null,
   deviceMemoryGb: navigator.deviceMemory || null,
@@ -40,6 +43,8 @@ window.PayloadDiffDiagnostics = {
   clear: clearDiagnostics,
   snapshot: captureSnapshot,
   events: () => [...events],
+  version: APP_VERSION,
+  exportFormatVersion: EXPORT_FORMAT_VERSION,
 };
 
 function installControls() {
@@ -145,6 +150,8 @@ function markOperation(type) {
 function captureSnapshot() {
   return {
     uptimeMs: Math.round(performance.now() - startedAt),
+    appVersion: APP_VERSION,
+    exportFormatVersion: EXPORT_FORMAT_VERSION,
     mode: document.querySelector('.mode-btn.active')?.dataset.mode || null,
     syncEnabled: document.querySelector('.enhancement-sync input[type="checkbox"]')?.checked ?? null,
     compareVisible: !document.querySelector('#compareBar')?.classList.contains('hidden'),
@@ -168,7 +175,6 @@ function visibleView(index) {
   const pane = panes[index];
   if (!pane) return null;
   if (isVisible(pane.querySelector('.tree-view'))) return 'tree';
-  if (isVisible(pane.querySelector('.virtual-code'))) return 'large-code';
   if (isVisible(pane.querySelector('.editor'))) return 'code-editable';
   return 'hidden';
 }
@@ -176,7 +182,7 @@ function visibleView(index) {
 function visibleScroller(index) {
   const pane = panes[index];
   if (!pane) return null;
-  return [pane.querySelector('.tree-view'), pane.querySelector('.virtual-code'), pane.querySelector('.editor')].find(isVisible) || null;
+  return [pane.querySelector('.tree-view'), pane.querySelector('.editor')].find(isVisible) || null;
 }
 
 function isVisible(element) {
@@ -199,6 +205,8 @@ function exportDiagnostics() {
   const report = {
     schemaVersion: DIAGNOSTICS_SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
+    appVersion: APP_VERSION,
+    exportFormatVersion: EXPORT_FORMAT_VERSION,
     privacy: 'Payload contents are intentionally excluded. Only metadata, errors, UI state, counts, and timings are included.',
     currentSessionId: SESSION_ID,
     currentSnapshot: captureSnapshot(),
