@@ -1,4 +1,4 @@
-import { buildDiffLineIndex, nearestDiffIndexForLine, visibleCenterLine } from './diff-navigation.js';
+import { buildDiffLineIndex, nearestDiffIndexForLine, visibleCenterLine, lineFromClientY } from './diff-navigation.js';
 
 const editors = [document.querySelector('#editor0'), document.querySelector('#editor1')];
 const panes = [...document.querySelectorAll('.pane')];
@@ -121,6 +121,8 @@ function createOverlay(editor, index) {
     renderOverlay(index);
     scheduleNavigatorFromScroll(index);
   }, { passive: true });
+
+  editor.addEventListener('click', (event) => selectDiffFromClick(index, event));
 
   // Remember which pane the user is actively manipulating. The synchronized
   // partner pane also fires a scroll event; ignoring that mirrored event avoids
@@ -320,7 +322,32 @@ function syncNavigatorToScroll(index) {
     lineHeight,
     paddingTop,
   });
-  const nearest = nearestDiffIndexForLine(entries, centerLine);
+  selectNearestDiffForLine(index, centerLine);
+}
+
+function selectDiffFromClick(index, event) {
+  if (!compareActive || invalidSides.length || currentMode() !== 'json' || !orderedDiffs.length) return;
+  const editor = editors[index];
+  if (!editor || !isVisible(editor)) return;
+
+  const computed = getComputedStyle(editor);
+  const lineHeight = parseFloat(computed.lineHeight) || 20;
+  const paddingTop = parseFloat(computed.paddingTop) || 0;
+  const rect = editor.getBoundingClientRect();
+  const clickedLine = lineFromClientY({
+    clientY: event.clientY,
+    rectTop: rect.top,
+    scrollTop: editor.scrollTop,
+    lineHeight,
+    paddingTop,
+  });
+  selectNearestDiffForLine(index, clickedLine);
+}
+
+function selectNearestDiffForLine(index, line) {
+  const entries = diffLinesByPane[index];
+  if (!entries.length) return;
+  const nearest = nearestDiffIndexForLine(entries, line);
   if (nearest < 0 || nearest === currentDiffIndex) return;
 
   currentDiffIndex = nearest;
