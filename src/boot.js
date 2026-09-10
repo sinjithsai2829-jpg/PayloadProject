@@ -7,3 +7,4 @@ import './diagnostics.js';
 import './persistence.js';
 import './diff-visibility.js';
 import './editable-code-surface.js';
+import './scrollbar-visibility.js';
