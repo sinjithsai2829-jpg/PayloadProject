@@ -56,22 +56,57 @@ export function comparePayloads({ mode, left, right }) {
   const rightFormatted = formatPayload({ mode: 'xml', text: right }).formatted;
   const leftLines = leftFormatted.split('\n');
   const rightLines = rightFormatted.split('\n');
-  const diff = myersChangedLines(leftLines, rightLines);
+  const changed = myersChangedLines(leftLines, rightLines);
+  const normalized = buildXmlDiffEvents(changed.leftChanged, changed.rightChanged);
+  const truncated = changed.leftChanged.length > MAX_DIFFS
+    || changed.rightChanged.length > MAX_DIFFS
+    || changed.truncated
+    || normalized.truncated;
 
   return {
     mode,
     leftFormatted,
     rightFormatted,
-    leftChanged: diff.leftChanged.slice(0, MAX_DIFFS),
-    rightChanged: diff.rightChanged.slice(0, MAX_DIFFS),
+    leftChanged: changed.leftChanged.slice(0, MAX_DIFFS),
+    rightChanged: changed.rightChanged.slice(0, MAX_DIFFS),
+    diffs: normalized.diffs,
     summary: {
-      added: diff.added,
-      removed: diff.removed,
-      modified: Math.min(diff.added, diff.removed),
-      truncated: diff.leftChanged.length > MAX_DIFFS || diff.rightChanged.length > MAX_DIFFS || diff.truncated,
+      ...normalized.summary,
+      truncated,
     },
-    identical: diff.added === 0 && diff.removed === 0,
+    identical: normalized.diffs.length === 0,
     elapsedMs: Math.round(now() - started),
+  };
+}
+
+// XML comparison is line based, but the rest of the application should not
+// have to understand separate left/right changed-line arrays. Normalize those
+// arrays into the same ordered diff event contract used by JSON: every
+// navigable difference has a type plus optional left/right line numbers.
+export function buildXmlDiffEvents(leftChanged, rightChanged, maxDiffs = MAX_DIFFS) {
+  const left = Array.isArray(leftChanged) ? leftChanged : [];
+  const right = Array.isArray(rightChanged) ? rightChanged : [];
+  const count = Math.min(Math.max(left.length, right.length), maxDiffs);
+  const diffs = [];
+  const summary = { added: 0, removed: 0, modified: 0 };
+
+  for (let index = 0; index < count; index += 1) {
+    const leftLine = left[index] || null;
+    const rightLine = right[index] || null;
+    const type = leftLine && rightLine ? 'modified' : leftLine ? 'removed' : 'added';
+    diffs.push({
+      path: `$xml[${index}]`,
+      type,
+      leftLine,
+      rightLine,
+    });
+    summary[type] += 1;
+  }
+
+  return {
+    diffs,
+    summary,
+    truncated: Math.max(left.length, right.length) > maxDiffs,
   };
 }
 
