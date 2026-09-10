@@ -15,15 +15,17 @@ let dbPromise = null;
 let saveTimer = 0;
 let restoring = false;
 let cleared = false;
+let lastSavedSignature = '';
 
 restoreSession().catch((error) => log('warn', 'persistence.restore.failed', { error }));
 pruneStaleSessions().catch(() => {});
 installPersistenceListeners();
 
 function installPersistenceListeners() {
+  // Persist actual payload changes, but do not write on every scroll event.
+  // pagehide captures the latest scroll position before refresh/navigation.
   editors.forEach((editor) => {
     editor?.addEventListener('input', () => scheduleSave());
-    editor?.addEventListener('scroll', () => scheduleSave(700), { passive: true });
   });
 
   document.querySelectorAll('.file-input').forEach((input) => {
@@ -48,12 +50,13 @@ function installPersistenceListeners() {
 
   clearBtn?.addEventListener('click', () => {
     cleared = true;
+    lastSavedSignature = '';
     clearTimeout(saveTimer);
     deleteCurrentSession().catch((error) => log('warn', 'persistence.clear.failed', { error }));
   });
 
   addEventListener('pagehide', () => {
-    if (!cleared) saveNow().catch(() => {});
+    if (!cleared) saveNow({ force: true }).catch(() => {});
   });
 }
 
@@ -66,11 +69,15 @@ function scheduleSave(delay = SAVE_DEBOUNCE_MS) {
   }, delay);
 }
 
-async function saveNow() {
+async function saveNow({ force = false } = {}) {
   if (restoring || cleared) return;
-  const db = await openDb();
   const record = captureState();
+  const signature = stateSignature(record);
+  if (!force && signature === lastSavedSignature) return;
+
+  const db = await openDb();
   await requestToPromise(transactionStore(db, 'readwrite').put(record));
+  lastSavedSignature = signature;
   log('debug', 'persistence.saved', {
     chars: record.panes.map((pane) => pane.text.length),
     mode: record.mode,
@@ -112,6 +119,7 @@ async function restoreSession() {
       requestAnimationFrame(() => restoreScrollPositions(record));
     });
 
+    lastSavedSignature = stateSignature(record);
     log('info', 'persistence.restored', {
       chars: record.panes?.map((pane) => pane.text?.length || 0) || [],
       mode: record.mode,
@@ -133,11 +141,20 @@ function captureState() {
       return {
         text: editor?.value || '',
         view: panes[index]?.querySelector('.view-btn[data-view="tree"]')?.classList.contains('active') ? 'tree' : 'code',
-        scrollTop: scroller?.scrollTop || 0,
-        scrollLeft: scroller?.scrollLeft || 0,
+        scrollTop: Math.round(scroller?.scrollTop || 0),
+        scrollLeft: Math.round(scroller?.scrollLeft || 0),
       };
     }),
   };
+}
+
+function stateSignature(record) {
+  // Exclude updatedAt so an unchanged state does not trigger another write.
+  return JSON.stringify({
+    mode: record.mode,
+    syncEnabled: record.syncEnabled,
+    panes: record.panes,
+  });
 }
 
 function restoreScrollPositions(record) {
@@ -153,7 +170,7 @@ function restoreScrollPositions(record) {
 function visibleScroller(index) {
   const pane = panes[index];
   if (!pane) return null;
-  return [pane.querySelector('.tree-view'), pane.querySelector('.virtual-code'), pane.querySelector('.editor')]
+  return [pane.querySelector('.tree-view'), pane.querySelector('.editor')]
     .find((element) => element && !element.classList.contains('hidden') && element.offsetParent !== null) || null;
 }
 
