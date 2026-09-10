@@ -3,6 +3,7 @@ import {
   buildDiffLineIndex,
   nearestDiffIndexForLine,
   visibleCenterLine,
+  lineFromClientY,
 } from './src/diff-navigation.js';
 
 const diffs = Array.from({ length: 534 }, (_, index) => ({
@@ -33,6 +34,18 @@ assert.equal(nearestDiffIndexForLine(leftIndex, centerLine), 249);
 let currentDiffIndex = nearestDiffIndexForLine(leftIndex, centerLine);
 currentDiffIndex = (currentDiffIndex + 1 + diffs.length) % diffs.length;
 assert.equal(currentDiffIndex, 250);
+
+// Clicking a line in the middle of an already scrolled editor must map the
+// pointer Y position back to the document line and select the nearest diff.
+const clickedLine = lineFromClientY({
+  clientY: 320,
+  rectTop: 100,
+  scrollTop: (1001 - 1) * 20 - 200,
+  lineHeight: 20,
+  paddingTop: 0,
+});
+assert.equal(clickedLine, 1002);
+assert.equal(nearestDiffIndexForLine(leftIndex, clickedLine), 249);
 
 // Added/removed differences can have a line only on one side; the fallback line
 // still allows the navigator to stay approximately aligned between both panes.
