@@ -37,7 +37,11 @@ button.primary:hover:not(:disabled) { background: #3b70e6; }
 .sync-toggle input { accent-color: #4479ef; }
 
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
-.pane { min-width: 0; overflow: hidden; }
+/* overflow:hidden creates a programmatically scrollable container. That caused
+   scrollIntoView() on tree differences to scroll the whole pane and hide the
+   File header/tools. overflow:clip keeps the rounded clipping without making
+   the pane itself a scroll container. */
+.pane { min-width: 0; overflow: clip; }
 .pane-head { padding: 12px 13px 10px; display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid #24304a; }
 .pane-head h2 { margin: 0 0 4px; font-size: 15px; }
 .file-meta { display: block; color: #8290ab; font-size: 11px; min-height: 16px; }
