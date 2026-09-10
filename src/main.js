@@ -157,10 +157,43 @@ els.editors.forEach((editor, index) => {
     state.panes[index].raw = editor.value;
     state.panes[index].formatted = '';
     state.panes[index].parsed = null;
-    clearComparison();
+
+    // Editing valid/temporarily-invalid JSON is part of the same comparison
+    // session. The live comparison module owns refresh while that session is
+    // active, so the core must not destroy the comparison bar on each keypress.
+    if (!isLiveJsonComparisonActive()) clearComparison();
     updateMeta(index);
   });
 });
+
+// Keep the core tree/diff state aligned with the fast live comparison result.
+// Code highlighting/navigation and Tree highlighting now consume the same diff
+// result instead of maintaining unrelated comparison sessions.
+window.addEventListener('payloaddiff:live-compare-updated', (event) => {
+  if (state.mode !== 'json') return;
+  const detail = event.detail;
+  if (!detail?.summary || !Array.isArray(detail.diffs)) return;
+
+  state.compare = {
+    mode: 'json',
+    diffs: detail.diffs,
+    summary: detail.summary,
+    identical: !!detail.identical,
+    elapsedMs: detail.elapsedMs || 0,
+  };
+  const total = detail.diffs.length;
+  const requestedIndex = Number.isInteger(detail.currentDiffIndex) ? detail.currentDiffIndex : state.compareIndex;
+  state.compareIndex = total ? Math.min(Math.max(0, requestedIndex || 0), total - 1) : -1;
+  buildDiffIndex();
+
+  for (let index = 0; index < state.panes.length; index += 1) {
+    if (state.panes[index].view === 'tree' && state.panes[index].parsed != null) renderTree(index);
+  }
+});
+
+function isLiveJsonComparisonActive() {
+  return state.mode === 'json' && !!window.PayloadDiffCompareSession?.isActive?.();
+}
 
 function switchMode(mode) {
   if (mode === state.mode) return;
@@ -190,6 +223,7 @@ async function onUpload(event) {
   els.editors[index].value = text;
   updateMeta(index);
   clearComparison();
+  window.dispatchEvent(new CustomEvent('payloaddiff:comparison-reset'));
 }
 
 async function formatBoth() {
@@ -347,26 +381,31 @@ function scrollTextareaToLine(textarea, line) {
   textarea.scrollTop = Math.max(0, (line - 5) * lineHeight);
 }
 
-function switchView(index, view) {
+async function switchView(index, view) {
   const pane = state.panes[index];
   if (view === 'tree' && state.mode !== 'json') return;
+
+  if (view === 'tree' && pane.parsed == null) {
+    const text = els.editors[index].value;
+    if (!text.trim()) return setStatus(`File ${index + 1} is empty.`, true);
+    try {
+      setStatus(`Building File ${index + 1} tree…`);
+      const result = await runWorker('format', { mode: 'json', text });
+      pane.parsed = result.parsed ?? null;
+      pane.formatted = result.formatted;
+      updateMeta(index, result);
+    } catch (error) {
+      setStatus(`Tree view unavailable: ${error.message}`, true);
+      return;
+    }
+  }
+
   pane.view = view;
   const wrapper = document.querySelector(`.view-tabs[data-pane="${index}"]`);
   wrapper.querySelectorAll('.view-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   els.editors[index].classList.toggle('hidden', view !== 'code');
   els.trees[index].classList.toggle('hidden', view !== 'tree');
-  if (view === 'tree') {
-    if (!pane.parsed) {
-      setStatus('Format this JSON first to open Tree View.', true);
-      pane.view = 'code';
-      wrapper.querySelector('[data-view="code"]').classList.add('active');
-      wrapper.querySelector('[data-view="tree"]').classList.remove('active');
-      els.editors[index].classList.remove('hidden');
-      els.trees[index].classList.add('hidden');
-      return;
-    }
-    renderTree(index);
-  }
+  if (view === 'tree') renderTree(index);
 }
 
 function renderTree(index) {
@@ -532,6 +571,7 @@ function clearAll() {
   els.trees.forEach((tree) => tree.replaceChildren());
   els.fileMeta.forEach((meta) => meta.textContent = 'Paste or upload a payload');
   clearComparison();
+  window.dispatchEvent(new CustomEvent('payloaddiff:comparison-reset'));
   setStatus('Cleared.');
 }
 
@@ -541,6 +581,10 @@ function clearComparison() {
   state.diffExact = new Map();
   state.diffAncestors = new Set();
   els.compareBar.classList.add('hidden');
+  els.compareSummary.innerHTML = '';
+  els.diffPosition.textContent = '0 of 0';
+  els.prevDiff.disabled = true;
+  els.nextDiff.disabled = true;
 }
 
 function updateMeta(index, result) {
