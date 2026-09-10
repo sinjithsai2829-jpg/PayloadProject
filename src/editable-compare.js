@@ -12,6 +12,7 @@ const nextDiff = document.querySelector('#nextDiff');
 const statusText = document.querySelector('#statusText');
 
 let compareActive = false;
+let activeMode = 'json';
 let liveTimer = 0;
 let workerSeq = 0;
 let latestRequest = 0;
@@ -31,6 +32,7 @@ const diffLinesByPane = [[], []];
 
 window.PayloadDiffCompareSession = {
   isActive: () => compareActive,
+  getMode: () => activeMode,
   getInvalidSides: () => invalidSides.map((item) => ({ ...item })),
   getCurrentDiffIndex: () => currentDiffIndex,
 };
@@ -48,11 +50,11 @@ worker.onmessage = ({ data }) => {
   }
 };
 
-function runFastCompare(left, right) {
+function runLiveCompare(mode, left, right) {
   return new Promise((resolve, reject) => {
     const id = ++workerSeq;
     workerPending.set(id, { resolve, reject });
-    worker.postMessage({ id, task: 'compareJson', payload: { left, right } });
+    worker.postMessage({ id, task: 'compareLive', payload: { mode, left, right } });
   });
 }
 
@@ -99,12 +101,12 @@ function installStyles() {
       margin-left: 8px;
     }
     .compare-bar.live-invalid::after {
-      content: 'comparison paused — invalid JSON';
+      content: 'comparison paused — payload is temporarily invalid';
       color: #fca5a5;
       font-size: 11px;
       margin-left: 8px;
     }
-    .pane.invalid-json .editor-wrap { box-shadow: inset 0 0 0 1px rgba(248,113,113,.75); }
+    .pane.invalid-payload .editor-wrap { box-shadow: inset 0 0 0 1px rgba(248,113,113,.75); }
   `;
   document.head.appendChild(style);
 }
@@ -124,9 +126,6 @@ function createOverlay(editor, index) {
 
   editor.addEventListener('click', (event) => selectDiffFromClick(index, event));
 
-  // Remember which pane the user is actively manipulating. The synchronized
-  // partner pane also fires a scroll event; ignoring that mirrored event avoids
-  // the counter bouncing between slightly different line positions.
   const markUserScrollSource = () => {
     userScrollPane = index;
     userScrollPaneUntil = performance.now() + 900;
@@ -163,37 +162,34 @@ function afterBusy(callback) {
 
 compareBtn?.addEventListener('click', () => {
   afterBusy(async () => {
-    if (currentMode() !== 'json' || !editors[0].value.trim() || !editors[1].value.trim()) return;
+    if (!editors[0].value.trim() || !editors[1].value.trim()) return;
     if (!compareBar || compareBar.classList.contains('hidden')) return;
     compareActive = true;
+    activeMode = currentMode();
     invalidSides = [];
-    await refreshFastComparison({ preserveNavigator: false });
+    await refreshLiveComparison({ preserveNavigator: false });
   });
 }, true);
 
 editors.forEach((editor) => {
   editor.addEventListener('input', () => {
-    if (!compareActive || currentMode() !== 'json') return;
+    if (!compareActive || currentMode() !== activeMode) return;
 
     clearTimeout(liveTimer);
     compareBar?.classList.remove('hidden', 'live-invalid');
     compareBar?.classList.add('live-stale');
     restoreLastGoodSummary();
-
-    // Do not show old line highlights against newly edited text. The summary is
-    // retained as the last successful result, but the bands/navigation are
-    // temporarily suspended until both documents parse again.
     hideOverlays();
     disableNavigatorForEditing('Updating…');
     clearInvalidPaneMarkers();
-    setLiveStatus('Editing — comparison will refresh when JSON is valid.');
+    setLiveStatus(`Editing — comparison will refresh when ${activeMode.toUpperCase()} is valid.`);
 
-    liveTimer = window.setTimeout(() => refreshFastComparison({ preserveNavigator: true }), 220);
+    liveTimer = window.setTimeout(() => refreshLiveComparison({ preserveNavigator: true }), 220);
   });
 });
 
-prevDiff?.addEventListener('click', (event) => handleFastNavigation(event, -1), true);
-nextDiff?.addEventListener('click', (event) => handleFastNavigation(event, 1), true);
+prevDiff?.addEventListener('click', (event) => handleLiveNavigation(event, -1), true);
+nextDiff?.addEventListener('click', (event) => handleLiveNavigation(event, 1), true);
 clearBtn?.addEventListener('click', resetLiveCompare);
 document.querySelectorAll('.mode-btn').forEach((button) => button.addEventListener('click', resetLiveCompare));
 window.addEventListener('payloaddiff:comparison-reset', resetLiveCompare);
@@ -205,8 +201,8 @@ for (const pane of panes) {
   }));
 }
 
-function handleFastNavigation(event, delta) {
-  if (!compareActive || invalidSides.length || currentMode() !== 'json' || !orderedDiffs.length) return;
+function handleLiveNavigation(event, delta) {
+  if (!compareActive || invalidSides.length || currentMode() !== activeMode || !orderedDiffs.length) return;
   event.preventDefault();
   event.stopImmediatePropagation();
   currentDiffIndex = (currentDiffIndex + delta + orderedDiffs.length) % orderedDiffs.length;
@@ -215,20 +211,20 @@ function handleFastNavigation(event, delta) {
   scrollToCurrentDiff();
 }
 
-async function refreshFastComparison({ preserveNavigator }) {
-  if (!compareActive || currentMode() !== 'json') return;
+async function refreshLiveComparison({ preserveNavigator }) {
+  if (!compareActive || currentMode() !== activeMode) return;
   const left = editors[0].value;
   const right = editors[1].value;
   if (!left.trim() || !right.trim()) return;
 
   const request = ++latestRequest;
   try {
-    const result = await runFastCompare(left, right);
+    const result = await runLiveCompare(activeMode, left, right);
     if (request !== latestRequest || !compareActive) return;
 
     invalidSides = [];
     clearInvalidPaneMarkers();
-    orderedDiffs = result.ordered || [];
+    orderedDiffs = result.ordered || result.diffs || [];
     lastGoodSummary = result.summary;
     lastGoodElapsed = result.elapsedMs;
     if (!preserveNavigator || currentDiffIndex >= orderedDiffs.length) currentDiffIndex = 0;
@@ -256,8 +252,8 @@ async function refreshFastComparison({ preserveNavigator }) {
     markInvalidPanes(invalidSides);
     const labels = invalidSides.map((item) => item.side === 'left' ? 'File 1' : 'File 2');
     setLiveStatus(labels.length
-      ? `${labels.join(' and ')} invalid — comparison will resume automatically when JSON is valid.`
-      : 'Editing — comparison will refresh when JSON is valid.');
+      ? `${labels.join(' and ')} invalid — comparison will resume automatically when ${activeMode.toUpperCase()} is valid.`
+      : `Editing — comparison will refresh when ${activeMode.toUpperCase()} is valid.`);
   }
 }
 
@@ -295,7 +291,7 @@ function disableNavigatorForEditing(label) {
 }
 
 function scheduleNavigatorFromScroll(index) {
-  if (!compareActive || invalidSides.length || currentMode() !== 'json' || !orderedDiffs.length) return;
+  if (!compareActive || invalidSides.length || currentMode() !== activeMode || !orderedDiffs.length) return;
   if (!isVisible(editors[index])) return;
   if (performance.now() < suppressScrollTrackingUntil) return;
   if (performance.now() < userScrollPaneUntil && userScrollPane !== index) return;
@@ -326,7 +322,7 @@ function syncNavigatorToScroll(index) {
 }
 
 function selectDiffFromClick(index, event) {
-  if (!compareActive || invalidSides.length || currentMode() !== 'json' || !orderedDiffs.length) return;
+  if (!compareActive || invalidSides.length || currentMode() !== activeMode || !orderedDiffs.length) return;
   const editor = editors[index];
   if (!editor || !isVisible(editor)) return;
 
@@ -362,7 +358,8 @@ function publishCoreComparisonState(identical = null) {
   const total = lastGoodSummary.added + lastGoodSummary.removed + lastGoodSummary.modified;
   window.dispatchEvent(new CustomEvent('payloaddiff:live-compare-updated', {
     detail: {
-      diffs: orderedDiffs.map(({ path, type }) => ({ path, type })),
+      mode: activeMode,
+      diffs: orderedDiffs.map(({ path, type, leftLine, rightLine }) => ({ path, type, leftLine, rightLine })),
       summary: lastGoodSummary,
       identical: identical == null ? total === 0 : identical,
       elapsedMs: lastGoodElapsed,
@@ -375,9 +372,6 @@ function scrollToCurrentDiff() {
   const diff = orderedDiffs[currentDiffIndex];
   if (!diff) return;
 
-  // Next/Previous navigation intentionally moves the editors. Ignore those
-  // synthetic scroll events briefly so the scroll tracker cannot immediately
-  // reinterpret the position and change the selected diff again.
   suppressScrollTrackingUntil = performance.now() + 350;
   scrollEditorToLine(0, diff.leftLine || diff.rightLine);
   scrollEditorToLine(1, diff.rightLine || diff.leftLine);
@@ -413,7 +407,7 @@ function renderOverlay(index) {
   const wrap = editor?.closest('.editor-wrap');
   if (!editor || !overlay || !wrap) return;
 
-  const shouldShow = compareActive && !invalidSides.length && currentMode() === 'json' && isVisible(editor) && diffsByPane[index].length > 0;
+  const shouldShow = compareActive && !invalidSides.length && currentMode() === activeMode && isVisible(editor) && diffsByPane[index].length > 0;
   overlay.classList.toggle('hidden', !shouldShow);
   wrap.classList.toggle('compare-editing', shouldShow);
   if (!shouldShow) {
@@ -457,12 +451,12 @@ function markInvalidPanes(items) {
   clearInvalidPaneMarkers();
   for (const item of items) {
     const index = item.side === 'left' ? 0 : item.side === 'right' ? 1 : -1;
-    if (index >= 0) panes[index]?.classList.add('invalid-json');
+    if (index >= 0) panes[index]?.classList.add('invalid-payload');
   }
 }
 
 function clearInvalidPaneMarkers() {
-  panes.forEach((pane) => pane.classList.remove('invalid-json'));
+  panes.forEach((pane) => pane.classList.remove('invalid-payload'));
 }
 
 function lowerBound(entries, line) {
@@ -484,6 +478,7 @@ function setLiveStatus(message, error = false) {
 
 function resetLiveCompare() {
   compareActive = false;
+  activeMode = currentMode();
   clearTimeout(liveTimer);
   latestRequest += 1;
   orderedDiffs = [];
