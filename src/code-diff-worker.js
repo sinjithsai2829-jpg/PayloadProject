@@ -13,6 +13,7 @@ self.onmessage = ({ data }) => {
     const result = {
       left: { added: [], removed: [], modified: [] },
       right: { added: [], removed: [], modified: [] },
+      ordered: [],
       truncated: diffs.length >= MAX_DIFFS,
     };
 
@@ -22,8 +23,15 @@ self.onmessage = ({ data }) => {
     };
 
     for (const diff of diffs) {
-      const leftLine = leftMap.get(diff.path);
-      const rightLine = rightMap.get(diff.path);
+      const leftLine = leftMap.get(diff.path) || null;
+      const rightLine = rightMap.get(diff.path) || null;
+
+      result.ordered.push({
+        path: diff.path,
+        type: diff.type,
+        leftLine,
+        rightLine,
+      });
 
       if (diff.type === 'added') {
         if (rightLine && !seen.rightAdded.has(rightLine)) {
