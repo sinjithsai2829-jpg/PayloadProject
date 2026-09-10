@@ -7,6 +7,7 @@ const smoothWorker = await readFile(new URL('./src/smooth-worker.js', import.met
 const sync = await readFile(new URL('./src/sync-scroll.js', import.meta.url), 'utf8');
 const persistence = await readFile(new URL('./src/persistence.js', import.meta.url), 'utf8');
 const editableCode = await readFile(new URL('./src/editable-code-surface.js', import.meta.url), 'utf8');
+const enhancements = await readFile(new URL('./src/enhancements.js', import.meta.url), 'utf8');
 
 // Regression: do not load the retired duplicate code-diff runtime.
 assert.ok(boot.includes("./editable-compare.js"));
@@ -26,20 +27,31 @@ assert.ok(smoothWorker.includes("./fast-engine.js"));
 assert.ok(smoothWorker.includes('compareJsonValues'));
 assert.ok(smoothWorker.includes('attachPrettyJsonLineNumbers'));
 
-// Paired-pane scrolling remains part of the active runtime.
+// Paired-pane scrolling remains part of the active runtime and now works only
+// with the canonical editable Code editor or Tree view.
 assert.ok(sync.includes('Sync views & scroll'));
-assert.ok(sync.includes('visibleCodeScroller'));
+assert.ok(sync.includes("classList.contains('editor')"));
+assert.ok(!sync.includes('virtual-code'));
+assert.ok(!sync.includes('enhancement-edit'));
 
-// Editable Code is the canonical comparison surface: it must have line numbers,
-// hide the old Large view action, and prevent the read-only virtual renderer
-// from replacing Code while Code is selected.
+// Large view is intentionally removed. Enhancements keeps only tree search and
+// synchronized tree navigation; it must not create/toggle a virtual Code view.
+assert.ok(enhancements.includes('tree-search-worker.js'));
+assert.ok(enhancements.includes('Sync tree navigation'));
+assert.ok(!enhancements.includes('virtual-code'));
+assert.ok(!enhancements.includes('enhancement-edit'));
+assert.ok(!enhancements.includes('activateVirtual'));
+assert.ok(!enhancements.includes('toggleVirtual'));
+assert.ok(!enhancements.includes('View formatted'));
+assert.ok(!enhancements.includes('Large view'));
+
+// Editable Code is the canonical comparison surface and has line numbers.
 assert.ok(editableCode.includes('editor-line-gutter'));
 assert.ok(editableCode.includes('editor-line-number'));
-assert.ok(editableCode.includes("document.querySelectorAll('.enhancement-edit')"));
-assert.ok(editableCode.includes("button.classList.add('hidden')"));
-assert.ok(editableCode.includes("virtual?.classList.add('hidden')"));
 assert.ok(editableCode.includes("editor.classList.remove('hidden')"));
-assert.ok(editableCode.includes('MutationObserver'));
+assert.ok(!editableCode.includes('virtual-code'));
+assert.ok(!editableCode.includes('enhancement-edit'));
+assert.ok(!editableCode.includes('Large view'));
 
 // Refresh persistence must support large payloads without storing them in
 // localStorage. Payload text is kept in IndexedDB; only a per-tab session ID is
