@@ -3,10 +3,7 @@ const panes = [...document.querySelectorAll('.pane')];
 const compareBtn = document.querySelector('#compareBtn');
 const clearBtn = document.querySelector('#clearBtn');
 const compareBar = document.querySelector('#compareBar');
-const compareSummary = document.querySelector('#compareSummary');
-const diffPosition = document.querySelector('#diffPosition');
-const prevDiff = document.querySelector('#prevDiff');
-const nextDiff = document.querySelector('#nextDiff');
+const statusText = document.querySelector('#statusText');
 
 let compareActive = false;
 let autoCompareTimer = 0;
@@ -53,7 +50,11 @@ function installStyles() {
       overflow: hidden;
       pointer-events: none;
       background: #0b1221;
+      transition: opacity .12s ease;
     }
+    body[data-compare-phase="editing"] .editor-diff-overlay,
+    body[data-compare-phase="updating"] .editor-diff-overlay { opacity: .62; }
+    body[data-compare-phase="paused"] .editor-diff-overlay { opacity: .42; }
     .editor-diff-band {
       position: absolute;
       left: 0;
@@ -73,7 +74,7 @@ function installStyles() {
       background: rgba(239, 68, 68, .13);
       border-left-color: #ef4444;
     }
-    .compare-bar.comparison-updating #compareSummary { opacity: .5; }
+    .compare-bar.comparison-updating #compareSummary { opacity: .72; }
   `;
   document.head.appendChild(style);
 }
@@ -98,6 +99,13 @@ function isVisible(element) {
   return !!element && !element.classList.contains('hidden') && element.offsetParent !== null;
 }
 
+function setSession(active, phase = active ? 'current' : 'idle') {
+  compareActive = active;
+  document.body.dataset.compareSession = active ? 'active' : 'idle';
+  document.body.dataset.comparePhase = phase;
+  compareBar?.classList.toggle('comparison-updating', active && phase !== 'current');
+}
+
 function afterBusy(callback) {
   let sawBusy = document.body.classList.contains('busy');
   const check = () => {
@@ -111,22 +119,35 @@ function afterBusy(callback) {
   requestAnimationFrame(check);
 }
 
+function compareSucceeded() {
+  if (!compareBar || compareBar.classList.contains('hidden')) return false;
+  const status = statusText?.textContent || '';
+  return status.startsWith('Comparison complete') || status.startsWith('Identical');
+}
+
 compareBtn?.addEventListener('click', () => {
   const wasActive = compareActive;
+  clearTimeout(autoCompareTimer);
+
   afterBusy(async () => {
-    const succeeded = !!compareBar && !compareBar.classList.contains('hidden');
-    if (succeeded) {
-      compareActive = true;
-      compareBar.classList.remove('comparison-updating');
+    if (compareSucceeded()) {
+      setSession(true, 'current');
       await refreshEditableDiffs();
       restoreEditSnapshot();
-    } else if (!wasActive) {
-      compareActive = false;
-      clearEditableDiffs();
-    } else {
-      // Keep live-compare mode armed. The next valid edit will retry.
-      restoreEditSnapshot();
+      return;
     }
+
+    if (wasActive) {
+      // A failed refresh must never kick the user out of compare mode. Keep the
+      // last successful result visible and wait for the payload to become valid.
+      setSession(true, 'paused');
+      if (compareBar) compareBar.classList.remove('hidden');
+      restoreEditSnapshot();
+      return;
+    }
+
+    setSession(false, 'idle');
+    clearEditableDiffs();
   });
 }, true);
 
@@ -135,43 +156,56 @@ editors.forEach((editor) => {
     if (!compareActive) return;
 
     clearTimeout(autoCompareTimer);
-    clearEditableDiffs();
+    setSession(true, 'editing');
 
-    // main.js clears the comparison state on input. Keep the comparison bar in
-    // place so editing does not feel like leaving comparison mode.
+    // main.js clears its internal comparison object on input. Keep the last
+    // successful comparison UI and overlay visible while the user is typing.
     requestAnimationFrame(() => {
       if (!compareActive || !compareBar) return;
       compareBar.classList.remove('hidden');
-      compareBar.classList.add('comparison-updating');
-      if (diffPosition) diffPosition.textContent = 'Updating…';
-      if (prevDiff) prevDiff.disabled = true;
-      if (nextDiff) nextDiff.disabled = true;
+      renderOverlay(0);
+      renderOverlay(1);
     });
 
     autoCompareTimer = window.setTimeout(() => {
       if (!compareActive) return;
-      if (!editors[0].value.trim() || !editors[1].value.trim()) return;
+
+      const validation = validateCurrentPayloads();
+      if (!validation.ok) {
+        setSession(true, 'paused');
+        if (statusText) {
+          statusText.textContent = `Comparison paused while editing: ${validation.message}`;
+          statusText.classList.remove('error');
+        }
+        return;
+      }
+
       editSnapshot = snapshotEditingPosition();
+      setSession(true, 'updating');
+      if (statusText) {
+        statusText.textContent = 'Updating comparison…';
+        statusText.classList.remove('error');
+      }
       compareBtn?.click();
     }, 700);
   });
 });
 
 clearBtn?.addEventListener('click', () => {
-  compareActive = false;
+  setSession(false, 'idle');
   clearTimeout(autoCompareTimer);
   clearEditableDiffs();
 });
 
 document.querySelectorAll('.mode-btn').forEach((button) => {
   button.addEventListener('click', () => {
-    compareActive = false;
+    setSession(false, 'idle');
     clearTimeout(autoCompareTimer);
     clearEditableDiffs();
   });
 });
 
-// Whenever Code/Tree or Large view/Edit changes, show the overlay only when the
+// Whenever Code/Tree or Large view changes, show the overlay only when the
 // actual editable textarea is the visible comparison surface.
 for (const pane of panes) {
   pane.addEventListener('click', () => {
@@ -180,6 +214,38 @@ for (const pane of panes) {
       renderOverlay(1);
     });
   });
+}
+
+function validateCurrentPayloads() {
+  const left = editors[0]?.value || '';
+  const right = editors[1]?.value || '';
+  if (!left.trim() || !right.trim()) return { ok: false, message: 'both files are required' };
+
+  if (currentMode() === 'json') {
+    try {
+      JSON.parse(left);
+    } catch (error) {
+      return { ok: false, message: `File 1 has incomplete/invalid JSON (${compactJsonError(error)})` };
+    }
+    try {
+      JSON.parse(right);
+    } catch (error) {
+      return { ok: false, message: `File 2 has incomplete/invalid JSON (${compactJsonError(error)})` };
+    }
+    return { ok: true };
+  }
+
+  const parser = new DOMParser();
+  const leftDoc = parser.parseFromString(left, 'application/xml');
+  if (leftDoc.querySelector('parsererror')) return { ok: false, message: 'File 1 has incomplete/invalid XML' };
+  const rightDoc = parser.parseFromString(right, 'application/xml');
+  if (rightDoc.querySelector('parsererror')) return { ok: false, message: 'File 2 has incomplete/invalid XML' };
+  return { ok: true };
+}
+
+function compactJsonError(error) {
+  const text = error?.message || 'unable to parse';
+  return text.length > 110 ? `${text.slice(0, 107)}…` : text;
 }
 
 async function refreshEditableDiffs() {
@@ -195,7 +261,8 @@ async function refreshEditableDiffs() {
     renderOverlay(0);
     renderOverlay(1);
   } catch {
-    clearEditableDiffs();
+    // Preserve the last successful overlay. A temporary parse problem while
+    // typing must not visually exit comparison mode.
   }
 }
 
