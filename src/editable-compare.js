@@ -17,15 +17,26 @@ let currentDiffIndex = 0;
 let orderedDiffs = [];
 let lastGoodSummary = null;
 let lastGoodElapsed = 0;
+let invalidSides = [];
 const workerPending = new Map();
 const diffsByPane = [[], []];
+
+window.PayloadDiffCompareSession = {
+  isActive: () => compareActive,
+  getInvalidSides: () => invalidSides.map((item) => ({ ...item })),
+};
 
 const worker = new Worker(new URL('./smooth-worker.js', import.meta.url), { type: 'module' });
 worker.onmessage = ({ data }) => {
   const pending = workerPending.get(data.id);
   if (!pending) return;
   workerPending.delete(data.id);
-  data.ok ? pending.resolve(data.result) : pending.reject(new Error(data.error));
+  if (data.ok) pending.resolve(data.result);
+  else {
+    const error = new Error(data.error || 'Comparison failed');
+    error.invalidSides = Array.isArray(data.invalidSides) ? data.invalidSides : [];
+    pending.reject(error);
+  }
 };
 
 function runFastCompare(left, right) {
@@ -63,20 +74,28 @@ function installStyles() {
       position: absolute;
       left: 0;
       right: 0;
-      border-left: 3px solid transparent;
+      border-left: 4px solid transparent;
       pointer-events: none;
     }
-    .editor-diff-band.modified { background: rgba(245,158,11,.14); border-left-color: #f59e0b; }
-    .editor-diff-band.added { background: rgba(34,197,94,.13); border-left-color: #22c55e; }
-    .editor-diff-band.removed { background: rgba(239,68,68,.13); border-left-color: #ef4444; }
-    .editor-diff-band.current { outline: 1px solid rgba(96,165,250,.9); outline-offset: -1px; }
-    .compare-bar.live-stale #compareSummary { opacity: .72; }
+    .editor-diff-band.modified { background: rgba(245,158,11,.24); border-left-color: #fbbf24; }
+    .editor-diff-band.added { background: rgba(34,197,94,.22); border-left-color: #4ade80; }
+    .editor-diff-band.removed { background: rgba(239,68,68,.22); border-left-color: #f87171; }
+    .editor-diff-band.current { outline: 2px solid rgba(96,165,250,.95); outline-offset: -2px; }
+    .compare-bar.live-stale #compareSummary { opacity: .64; }
+    .compare-bar.live-invalid #compareSummary { opacity: .45; }
     .compare-bar.live-stale::after {
       content: 'editing…';
       color: #fbbf24;
       font-size: 11px;
       margin-left: 8px;
     }
+    .compare-bar.live-invalid::after {
+      content: 'comparison paused — invalid JSON';
+      color: #fca5a5;
+      font-size: 11px;
+      margin-left: 8px;
+    }
+    .pane.invalid-json .editor-wrap { box-shadow: inset 0 0 0 1px rgba(248,113,113,.75); }
   `;
   document.head.appendChild(style);
 }
@@ -103,9 +122,10 @@ function isVisible(element) {
 
 function afterBusy(callback) {
   let sawBusy = document.body.classList.contains('busy');
+  const started = performance.now();
   const check = () => {
     sawBusy ||= document.body.classList.contains('busy');
-    if (sawBusy && !document.body.classList.contains('busy')) {
+    if ((sawBusy && !document.body.classList.contains('busy')) || performance.now() - started > 30000) {
       requestAnimationFrame(callback);
       return;
     }
@@ -117,9 +137,9 @@ function afterBusy(callback) {
 compareBtn?.addEventListener('click', () => {
   afterBusy(async () => {
     if (currentMode() !== 'json' || !editors[0].value.trim() || !editors[1].value.trim()) return;
-    const succeeded = !!compareBar && !compareBar.classList.contains('hidden');
-    if (!succeeded) return;
+    if (!compareBar || compareBar.classList.contains('hidden')) return;
     compareActive = true;
+    invalidSides = [];
     await refreshFastComparison({ preserveNavigator: false });
   });
 }, true);
@@ -129,45 +149,42 @@ editors.forEach((editor) => {
     if (!compareActive || currentMode() !== 'json') return;
 
     clearTimeout(liveTimer);
+    compareBar?.classList.remove('hidden', 'live-invalid');
+    compareBar?.classList.add('live-stale');
+    restoreLastGoodSummary();
 
-    // main.js clears its private comparison state on input. Re-show the last
-    // successful comparison immediately so editing never feels like leaving
-    // compare mode. Do not clear the last-good highlights.
-    requestAnimationFrame(() => {
-      if (!compareActive || !compareBar) return;
-      compareBar.classList.remove('hidden');
-      compareBar.classList.add('live-stale');
-      restoreLastGoodSummary();
-      renderOverlay(0);
-      renderOverlay(1);
-    });
+    // Do not show old line highlights against newly edited text. The summary is
+    // retained as the last successful result, but the bands/navigation are
+    // temporarily suspended until both documents parse again.
+    hideOverlays();
+    disableNavigatorForEditing('Updating…');
+    clearInvalidPaneMarkers();
+    setLiveStatus('Editing — comparison will refresh when JSON is valid.');
 
-    // Small debounce keeps typing smooth. No formatting and no synthetic
-    // Compare click: one parse + one structural diff in one worker only.
     liveTimer = window.setTimeout(() => refreshFastComparison({ preserveNavigator: true }), 220);
   });
 });
 
 prevDiff?.addEventListener('click', (event) => handleFastNavigation(event, -1), true);
 nextDiff?.addEventListener('click', (event) => handleFastNavigation(event, 1), true);
-
-function handleFastNavigation(event, delta) {
-  if (!compareActive || currentMode() !== 'json' || !orderedDiffs.length) return;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  currentDiffIndex = (currentDiffIndex + delta + orderedDiffs.length) % orderedDiffs.length;
-  updateNavigator();
-  scrollToCurrentDiff();
-}
-
 clearBtn?.addEventListener('click', resetLiveCompare);
 document.querySelectorAll('.mode-btn').forEach((button) => button.addEventListener('click', resetLiveCompare));
+window.addEventListener('payloaddiff:comparison-reset', resetLiveCompare);
 
 for (const pane of panes) {
   pane.addEventListener('click', () => requestAnimationFrame(() => {
     renderOverlay(0);
     renderOverlay(1);
   }));
+}
+
+function handleFastNavigation(event, delta) {
+  if (!compareActive || invalidSides.length || currentMode() !== 'json' || !orderedDiffs.length) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  currentDiffIndex = (currentDiffIndex + delta + orderedDiffs.length) % orderedDiffs.length;
+  updateNavigator();
+  scrollToCurrentDiff();
 }
 
 async function refreshFastComparison({ preserveNavigator }) {
@@ -181,6 +198,8 @@ async function refreshFastComparison({ preserveNavigator }) {
     const result = await runFastCompare(left, right);
     if (request !== latestRequest || !compareActive) return;
 
+    invalidSides = [];
+    clearInvalidPaneMarkers();
     orderedDiffs = result.ordered || [];
     lastGoodSummary = result.summary;
     lastGoodElapsed = result.elapsedMs;
@@ -193,16 +212,31 @@ async function refreshFastComparison({ preserveNavigator }) {
     updateNavigator();
     renderOverlay(0);
     renderOverlay(1);
-    compareBar?.classList.remove('live-stale');
+    compareBar?.classList.remove('live-stale', 'live-invalid');
     setLiveStatus(result.identical ? `Identical (${result.elapsedMs} ms)` : `Live comparison ${result.elapsedMs} ms`);
+
+    window.dispatchEvent(new CustomEvent('payloaddiff:live-compare-updated', {
+      detail: {
+        diffs: orderedDiffs.map(({ path, type }) => ({ path, type })),
+        summary: result.summary,
+        identical: result.identical,
+        elapsedMs: result.elapsedMs,
+        currentDiffIndex,
+      },
+    }));
   } catch (error) {
     if (request !== latestRequest || !compareActive) return;
-    // A half-typed JSON document is normal. Keep last good comparison visible
-    // and retry on the next edit instead of clearing the UI or showing a loud
-    // parse error while the user is typing.
-    compareBar?.classList.add('live-stale');
+    invalidSides = Array.isArray(error.invalidSides) ? error.invalidSides : [];
+    compareBar?.classList.remove('live-stale');
+    compareBar?.classList.add('live-invalid');
     restoreLastGoodSummary();
-    setLiveStatus('Editing — comparison will refresh when JSON is valid.', false);
+    hideOverlays();
+    disableNavigatorForEditing('Paused');
+    markInvalidPanes(invalidSides);
+    const labels = invalidSides.map((item) => item.side === 'left' ? 'File 1' : 'File 2');
+    setLiveStatus(labels.length
+      ? `${labels.join(' and ')} invalid — comparison will resume automatically when JSON is valid.`
+      : 'Editing — comparison will refresh when JSON is valid.');
   }
 }
 
@@ -224,14 +258,19 @@ function restoreLastGoodSummary() {
   compareSummary.innerHTML = total
     ? `<strong>${total} changes</strong> <span class="added">+${s.added} added</span> <span class="removed">−${s.removed} removed</span> <span class="modified">~${s.modified} modified</span>`
     : '<strong class="same">No differences found.</strong>';
-  updateNavigator();
 }
 
 function updateNavigator() {
   const total = orderedDiffs.length;
   if (diffPosition) diffPosition.textContent = total ? `${currentDiffIndex + 1} of ${total}` : '0 of 0';
-  if (prevDiff) prevDiff.disabled = total === 0;
-  if (nextDiff) nextDiff.disabled = total === 0;
+  if (prevDiff) prevDiff.disabled = total === 0 || invalidSides.length > 0;
+  if (nextDiff) nextDiff.disabled = total === 0 || invalidSides.length > 0;
+}
+
+function disableNavigatorForEditing(label) {
+  if (diffPosition) diffPosition.textContent = label;
+  if (prevDiff) prevDiff.disabled = true;
+  if (nextDiff) nextDiff.disabled = true;
 }
 
 function scrollToCurrentDiff() {
@@ -271,7 +310,7 @@ function renderOverlay(index) {
   const wrap = editor?.closest('.editor-wrap');
   if (!editor || !overlay || !wrap) return;
 
-  const shouldShow = compareActive && currentMode() === 'json' && isVisible(editor) && diffsByPane[index].length > 0;
+  const shouldShow = compareActive && !invalidSides.length && currentMode() === 'json' && isVisible(editor) && diffsByPane[index].length > 0;
   overlay.classList.toggle('hidden', !shouldShow);
   wrap.classList.toggle('compare-editing', shouldShow);
   if (!shouldShow) {
@@ -303,6 +342,26 @@ function renderOverlay(index) {
   overlay.replaceChildren(frag);
 }
 
+function hideOverlays() {
+  for (let index = 0; index < overlays.length; index += 1) {
+    overlays[index]?.replaceChildren();
+    overlays[index]?.classList.add('hidden');
+    editors[index]?.closest('.editor-wrap')?.classList.remove('compare-editing');
+  }
+}
+
+function markInvalidPanes(items) {
+  clearInvalidPaneMarkers();
+  for (const item of items) {
+    const index = item.side === 'left' ? 0 : item.side === 'right' ? 1 : -1;
+    if (index >= 0) panes[index]?.classList.add('invalid-json');
+  }
+}
+
+function clearInvalidPaneMarkers() {
+  panes.forEach((pane) => pane.classList.remove('invalid-json'));
+}
+
 function lowerBound(entries, line) {
   let lo = 0;
   let hi = entries.length;
@@ -326,13 +385,15 @@ function resetLiveCompare() {
   latestRequest += 1;
   orderedDiffs = [];
   lastGoodSummary = null;
+  lastGoodElapsed = 0;
   currentDiffIndex = 0;
+  invalidSides = [];
   diffsByPane[0] = [];
   diffsByPane[1] = [];
-  for (let index = 0; index < 2; index += 1) {
-    overlays[index]?.replaceChildren();
-    overlays[index]?.classList.add('hidden');
-    editors[index]?.closest('.editor-wrap')?.classList.remove('compare-editing');
-  }
-  compareBar?.classList.remove('live-stale');
+  hideOverlays();
+  clearInvalidPaneMarkers();
+  compareBar?.classList.remove('live-stale', 'live-invalid');
+  if (diffPosition) diffPosition.textContent = '0 of 0';
+  if (prevDiff) prevDiff.disabled = true;
+  if (nextDiff) nextDiff.disabled = true;
 }
