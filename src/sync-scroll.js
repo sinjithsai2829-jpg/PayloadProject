@@ -17,9 +17,7 @@ let pendingSync = null;
 let syncingView = false;
 
 function isVisible(element) {
-  if (!element) return false;
-  if (element.classList.contains('hidden')) return false;
-  return element.offsetParent !== null;
+  return !!element && !element.classList.contains('hidden') && element.offsetParent !== null;
 }
 
 function isTree(element) {
@@ -27,29 +25,21 @@ function isTree(element) {
 }
 
 function isCode(element) {
-  return element?.classList.contains('editor') || element?.classList.contains('virtual-code');
-}
-
-function visibleCodeScroller(pane) {
-  const virtual = pane?.querySelector('.virtual-code');
-  const editor = pane?.querySelector('.editor');
-  if (isVisible(virtual)) return virtual;
-  if (isVisible(editor)) return editor;
-  return virtual || editor || null;
+  return element?.classList.contains('editor');
 }
 
 function visibleScroller(pane) {
   const tree = pane?.querySelector('.tree-view');
   if (isVisible(tree)) return tree;
-  return visibleCodeScroller(pane);
+  const editor = pane?.querySelector('.editor');
+  return isVisible(editor) ? editor : null;
 }
 
 function counterpart(index, source) {
   const otherPane = panes[index === 0 ? 1 : 0];
   if (!otherPane || !source) return null;
-
   if (isTree(source)) return otherPane.querySelector('.tree-view');
-  if (isCode(source)) return visibleCodeScroller(otherPane);
+  if (isCode(source)) return otherPane.querySelector('.editor');
   return null;
 }
 
@@ -75,13 +65,11 @@ function copyScroll(source, target) {
   scrollLocks.add(target);
   target.scrollTop = targetMaxTop * topRatio;
   target.scrollLeft = targetMaxLeft * leftRatio;
-
   requestAnimationFrame(() => scrollLocks.delete(target));
 }
 
 function scheduleSync(index, source) {
   if (!syncInput?.checked || scrollLocks.has(source) || !isVisible(source)) return;
-
   pendingSync = { index, source };
   if (syncFrame) return;
 
@@ -90,17 +78,14 @@ function scheduleSync(index, source) {
     const pending = pendingSync;
     pendingSync = null;
     if (!pending || !syncInput?.checked) return;
-
     copyScroll(pending.source, counterpart(pending.index, pending.source));
   });
 }
 
 for (let index = 0; index < panes.length; index += 1) {
-  const pane = panes[index];
   for (const scroller of [
-    pane.querySelector('.editor'),
-    pane.querySelector('.tree-view'),
-    pane.querySelector('.virtual-code'),
+    panes[index].querySelector('.editor'),
+    panes[index].querySelector('.tree-view'),
   ].filter(Boolean)) {
     scroller.addEventListener('scroll', () => scheduleSync(index, scroller), { passive: true });
   }
@@ -118,9 +103,7 @@ function mirrorView(sourceIndex, view) {
   targetButton.click();
   requestAnimationFrame(() => {
     syncingView = false;
-    const sourceScroller = visibleScroller(panes[sourceIndex]);
-    const targetScroller = visibleScroller(targetPane);
-    copyScroll(sourceScroller, targetScroller);
+    copyScroll(visibleScroller(panes[sourceIndex]), visibleScroller(targetPane));
   });
 }
 
@@ -130,26 +113,6 @@ for (let index = 0; index < panes.length; index += 1) {
     const button = event.target.closest('.view-btn');
     if (!button) return;
     requestAnimationFrame(() => mirrorView(index, button.dataset.view));
-  });
-}
-
-// Keep both Code panes in the same renderer state too. If one side switches
-// between the editable textarea and the virtualized formatted viewer, mirror
-// that choice on the other side when sync is enabled.
-for (let index = 0; index < panes.length; index += 1) {
-  const button = panes[index].querySelector('.enhancement-edit');
-  button?.addEventListener('click', () => {
-    if (!syncInput?.checked || syncingView) return;
-    const other = index === 0 ? 1 : 0;
-    const otherButton = panes[other]?.querySelector('.enhancement-edit');
-    if (!otherButton || otherButton.disabled) return;
-
-    syncingView = true;
-    otherButton.click();
-    requestAnimationFrame(() => {
-      syncingView = false;
-      copyScroll(visibleScroller(panes[index]), visibleScroller(panes[other]));
-    });
   });
 }
 
