@@ -5,3 +5,4 @@ import './sync-scroll.js';
 import './editable-compare.js';
 import './diagnostics.js';
 import './persistence.js';
+import './diff-visibility.js';
