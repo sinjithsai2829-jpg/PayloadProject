@@ -22,8 +22,6 @@ pruneStaleSessions().catch(() => {});
 installPersistenceListeners();
 
 function installPersistenceListeners() {
-  // Persist actual payload changes, but do not write on every scroll event.
-  // pagehide captures the latest scroll position before refresh/navigation.
   editors.forEach((editor) => {
     editor?.addEventListener('input', () => scheduleSave());
   });
@@ -44,6 +42,7 @@ function installPersistenceListeners() {
   });
 
   document.querySelector('.enhancement-sync input[type="checkbox"]')?.addEventListener('change', () => scheduleSave(0));
+  window.addEventListener('payloaddiff:panel-name-changed', () => scheduleSave(0));
 
   formatBtn?.addEventListener('click', () => saveWhenOperationFinishes(), true);
   compareBtn?.addEventListener('click', () => saveWhenOperationFinishes(), true);
@@ -80,6 +79,7 @@ async function saveNow({ force = false } = {}) {
   lastSavedSignature = signature;
   log('debug', 'persistence.saved', {
     chars: record.panes.map((pane) => pane.text.length),
+    panelNames: record.panelNames,
     mode: record.mode,
   });
 }
@@ -93,6 +93,8 @@ async function restoreSession() {
 
     const modeButton = document.querySelector(`.mode-btn[data-mode="${record.mode}"]`);
     if (modeButton && !modeButton.classList.contains('active')) modeButton.click();
+
+    window.PayloadDiffPanelNames?.set?.(record.panelNames || ['File 1', 'File 2'], { notify: false });
 
     for (let index = 0; index < editors.length; index += 1) {
       const editor = editors[index];
@@ -122,6 +124,7 @@ async function restoreSession() {
     lastSavedSignature = stateSignature(record);
     log('info', 'persistence.restored', {
       chars: record.panes?.map((pane) => pane.text?.length || 0) || [],
+      panelNames: record.panelNames || ['File 1', 'File 2'],
       mode: record.mode,
       ageMs: Math.max(0, Date.now() - (record.updatedAt || Date.now())),
     });
@@ -135,6 +138,7 @@ function captureState() {
     id: sessionId,
     updatedAt: Date.now(),
     mode: document.querySelector('.mode-btn.active')?.dataset.mode || 'json',
+    panelNames: window.PayloadDiffPanelNames?.get?.() || ['File 1', 'File 2'],
     syncEnabled: document.querySelector('.enhancement-sync input[type="checkbox"]')?.checked ?? true,
     panes: editors.map((editor, index) => {
       const scroller = visibleScroller(index) || editor;
@@ -149,9 +153,9 @@ function captureState() {
 }
 
 function stateSignature(record) {
-  // Exclude updatedAt so an unchanged state does not trigger another write.
   return JSON.stringify({
     mode: record.mode,
+    panelNames: record.panelNames,
     syncEnabled: record.syncEnabled,
     panes: record.panes,
   });
