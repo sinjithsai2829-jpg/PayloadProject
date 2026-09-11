@@ -73,6 +73,7 @@ function normalizeUi(ui) {
     syncEnabled: ui.syncEnabled !== false,
     currentDiffIndex: Number.isInteger(ui.currentDiffIndex) && ui.currentDiffIndex >= 0 ? ui.currentDiffIndex : 0,
     selectedLines: normalizeSelectedLines(ui.selectedLines),
+    foldedRanges: normalizeFoldedRanges(ui.foldedRanges),
     codeScroll: normalizeScrollPair(ui.codeScroll),
     treeScroll: normalizeScrollPair(ui.treeScroll),
   };
@@ -93,6 +94,19 @@ function normalizeSelectedLines(value) {
   return pair.map((line) => {
     const number = Number(line);
     return Number.isInteger(number) && number > 0 ? number : null;
+  });
+}
+
+function normalizeFoldedRanges(value) {
+  const pair = Array.isArray(value) ? value.slice(0, 2) : [];
+  while (pair.length < 2) pair.push([]);
+  return pair.map((lines) => {
+    if (!Array.isArray(lines)) return [];
+    return [...new Set(lines
+      .map((line) => Number(line))
+      .filter((line) => Number.isInteger(line) && line > 0))]
+      .sort((a, b) => a - b)
+      .slice(0, 10000);
   });
 }
 
