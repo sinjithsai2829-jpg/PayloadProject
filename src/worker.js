@@ -1,5 +1,6 @@
 import { formatPayload, comparePayloads } from './core.js';
 import { searchJsonTree } from './search.js';
+import { normalizeJsonTransportInput } from './input-normalization.js';
 
 const jsonCache = new Map();
 
@@ -8,16 +9,22 @@ self.onmessage = (event) => {
   try {
     let result;
     if (task === 'format') {
-      result = formatPayload(payload);
+      const normalizedPayload = normalizePayloadForMode(payload);
+      result = formatPayload(normalizedPayload);
       if (payload.mode === 'json' && Number.isInteger(payload.paneIndex)) {
         jsonCache.set(payload.paneIndex, result.parsed);
       }
+      if (payload.mode === 'json' && normalizedPayload.__normalization?.repaired) {
+        result.repaired = true;
+        result.repairNote = normalizedPayload.__normalization.repairNote;
+      }
     } else if (task === 'compare') {
-      result = comparePayloads(payload);
+      result = comparePayloads(normalizeComparisonPayload(payload));
     } else if (task === 'searchJson') {
       let parsed = jsonCache.get(payload.paneIndex);
       if (parsed == null) {
-        const formatted = formatPayload({ mode: 'json', text: payload.text });
+        const normalized = normalizeJsonTransportInput(payload.text);
+        const formatted = formatPayload({ mode: 'json', text: normalized.text });
         parsed = formatted.parsed;
         jsonCache.set(payload.paneIndex, parsed);
       }
@@ -36,3 +43,24 @@ self.onmessage = (event) => {
     self.postMessage({ id, ok: false, error: error?.message || String(error) });
   }
 };
+
+function normalizePayloadForMode(payload) {
+  if (payload.mode !== 'json') return payload;
+  const normalized = normalizeJsonTransportInput(payload.text);
+  return {
+    ...payload,
+    text: normalized.text,
+    __normalization: normalized,
+  };
+}
+
+function normalizeComparisonPayload(payload) {
+  if (payload.mode !== 'json') return payload;
+  const left = normalizeJsonTransportInput(payload.left);
+  const right = normalizeJsonTransportInput(payload.right);
+  return {
+    ...payload,
+    left: left.text,
+    right: right.text,
+  };
+}
