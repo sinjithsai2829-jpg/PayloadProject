@@ -59,6 +59,7 @@ function scrollState(element) {
 function captureUiState() {
   return {
     views: [activeView(0), activeView(1)],
+    panelNames: window.PayloadDiffPanelNames?.get?.() || ['File 1', 'File 2'],
     syncEnabled: syncInput?.checked ?? true,
     currentDiffIndex: window.PayloadDiffCompareSession?.getCurrentDiffIndex?.() ?? 0,
     codeScroll: editors.map((editor) => scrollState(editor)),
@@ -97,6 +98,7 @@ function saveComparison() {
       filename,
       htmlChars: html.length,
       mode: snapshot.mode,
+      panelNames: snapshot.ui.panelNames,
       chars: [snapshot.payloads.left.length, snapshot.payloads.right.length],
       currentDiffIndex: snapshot.ui.currentDiffIndex,
     });
@@ -122,6 +124,7 @@ async function openComparison(event) {
     log('info', 'comparison-file.opened', {
       filename: file.name,
       mode: snapshot.mode,
+      panelNames: snapshot.ui.panelNames,
       chars: [snapshot.payloads.left.length, snapshot.payloads.right.length],
       currentDiffIndex: snapshot.ui.currentDiffIndex,
     });
@@ -135,6 +138,8 @@ async function restoreSnapshot(snapshot) {
   const modeBtn = document.querySelector(`.mode-btn[data-mode="${snapshot.mode}"]`);
   if (modeBtn && !modeBtn.classList.contains('active')) modeBtn.click();
   await frame();
+
+  window.PayloadDiffPanelNames?.set?.(snapshot.ui.panelNames || ['File 1', 'File 2']);
 
   for (let index = 0; index < 2; index += 1) {
     const editor = editors[index];
@@ -155,7 +160,7 @@ async function restoreSnapshot(snapshot) {
   await waitForComparison(snapshot.mode);
 
   for (let index = 0; index < 2; index += 1) {
-    const desired = snapshot.ui.views[index] === 'tree' && snapshot.mode === 'json' ? 'tree' : 'code';
+    const desired = snapshot.ui.views[index] === 'tree' ? 'tree' : 'code';
     const button = panes[index]?.querySelector(`.view-btn[data-view="${desired}"]`);
     if (button && !button.classList.contains('active')) button.click();
   }
