@@ -41,6 +41,19 @@ assert.ok(html.includes('browser-v3'));
 assert.ok(html.includes('<strong>Production &amp; Current</strong>'));
 assert.ok(html.includes('<strong>QA &lt;Candidate&gt;</strong>'));
 
+// Difference navigation parity: saved browser comparisons use the same compact
+// symbol-only first / previous / next / last controls as the live app.
+assert.ok(html.includes('id="first" title="First difference"'));
+assert.ok(html.includes('id="prev" title="Previous difference"'));
+assert.ok(html.includes('id="next" title="Next difference"'));
+assert.ok(html.includes('id="last" title="Last difference"'));
+assert.ok(html.includes('>⤒</button>'));
+assert.ok(html.includes('>↑</button>'));
+assert.ok(html.includes('>↓</button>'));
+assert.ok(html.includes('>⤓</button>'));
+assert.ok(!html.includes('← Previous'));
+assert.ok(!html.includes('Next →'));
+
 const textareas = [...html.matchAll(/<textarea class="codeEditor" spellcheck="false" wrap="off">([\s\S]*?)<\/textarea>/g)];
 assert.equal(textareas.length, 2);
 assert.ok(textareas[0][1].includes('&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;'));
@@ -67,6 +80,9 @@ assert.ok(runtime.includes('function isPathKeyStart(code)'));
 assert.ok(runtime.includes('function pathAncestors(path){var out=['));
 assert.ok(!runtime.includes('path.slice(1).match('));
 assert.ok(!runtime.includes('return /^[A-Za-z_$]'));
+assert.ok(runtime.includes("first.addEventListener('click'"));
+assert.ok(runtime.includes("last.addEventListener('click'"));
+assert.ok(runtime.includes('function goAbsolute(index)'));
 
 const name = portableComparisonDownloadName(new Date('2026-09-10T01:54:44.954Z'));
 assert.equal(name, 'payloaddiff-browser-v3-2026-09-10T01-54-44-954Z.html');
