@@ -6,6 +6,7 @@ const main = await readFile(new URL('./src/main.js', import.meta.url), 'utf8');
 const live = await readFile(new URL('./src/editable-compare.js', import.meta.url), 'utf8');
 const inlineDiff = await readFile(new URL('./src/inline-diff-highlights.js', import.meta.url), 'utf8');
 const codeFolding = await readFile(new URL('./src/code-folding.js', import.meta.url), 'utf8');
+const treeDiffNavigation = await readFile(new URL('./src/tree-diff-navigation.js', import.meta.url), 'utf8');
 const smoothWorker = await readFile(new URL('./src/smooth-worker.js', import.meta.url), 'utf8');
 const sync = await readFile(new URL('./src/sync-scroll.js', import.meta.url), 'utf8');
 const persistence = await readFile(new URL('./src/persistence.js', import.meta.url), 'utf8');
@@ -20,6 +21,7 @@ const treeSearchWorker = await readFile(new URL('./src/tree-search-worker.js', i
 assert.ok(boot.includes("./editable-compare.js"));
 assert.ok(boot.includes("./inline-diff-highlights.js"));
 assert.ok(boot.includes("./code-folding.js"));
+assert.ok(boot.includes("./tree-diff-navigation.js"));
 assert.ok(boot.includes("./sync-scroll.js"));
 assert.ok(boot.includes("./persistence.js"));
 assert.ok(boot.includes("./editable-code-surface.js"));
@@ -42,6 +44,23 @@ assert.ok(sync.includes("classList.contains('fold-code-view')"));
 assert.ok(persistence.includes('PayloadDiffCodeFolding'));
 assert.ok(persistence.includes('foldedRanges'));
 assert.ok(scrollbarVisibility.includes('.fold-code-view'));
+
+// Tree navigation must follow the selected comparison index rather than only
+// recoloring the tree. JSON reveals the selected path/ancestors, while XML maps
+// the selected diff line to the deepest XML node and scrolls it into view.
+assert.ok(treeDiffNavigation.includes("window.addEventListener('payloaddiff:live-compare-updated'"));
+assert.ok(treeDiffNavigation.includes('detail.currentDiffIndex'));
+assert.ok(treeDiffNavigation.includes('revealJsonTreePath'));
+assert.ok(treeDiffNavigation.includes('ensurePathRendered'));
+assert.ok(treeDiffNavigation.includes("scrollIntoView({ block: 'center', behavior: 'smooth' })"));
+assert.ok(treeDiffNavigation.includes('tree-diff-current'));
+assert.ok(xmlTreeUi.includes('currentDiffLine'));
+assert.ok(xmlTreeUi.includes('currentDiffPath'));
+assert.ok(xmlTreeUi.includes('revealXmlDifference'));
+assert.ok(xmlTreeUi.includes('findDeepestNodeChain'));
+assert.ok(xmlTreeUi.includes('ensureChainVisible'));
+assert.ok(xmlTreeUi.includes("scrollIntoView({ block: 'center', behavior: 'smooth' })"));
+assert.ok(xmlTreeUi.includes('tree-diff-current'));
 
 // XML Tree parity: Tree must be exposed for XML, built off-main-thread, lazily
 // rendered, searchable, diff-aware, and allowed to participate in shared sync.
