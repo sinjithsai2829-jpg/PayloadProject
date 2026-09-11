@@ -4,6 +4,7 @@ import './editable-default.js';
 import './sync-scroll.js';
 import './editable-compare.js';
 import './diagnostics.js';
+import './panel-names.js';
 import './persistence.js';
 import './diff-visibility.js';
 import './editable-code-surface.js';
