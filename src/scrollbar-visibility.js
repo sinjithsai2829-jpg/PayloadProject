@@ -47,18 +47,7 @@ style.textContent = `
     background: #08101d;
   }
 
-  /* With paired scrolling enabled, File 1's scrollbar sits in the middle of
-     the workspace and is redundant. Keep it fully scrollable with wheel,
-     trackpad, keyboard and sync; only hide that inner visual scrollbar. */
-  .sync-scroll-enabled .pane[data-pane="0"] .editor,
-  .sync-scroll-enabled .pane[data-pane="0"] .tree-view {
-    scrollbar-width: none;
-  }
-
-  .sync-scroll-enabled .pane[data-pane="0"] .editor::-webkit-scrollbar,
-  .sync-scroll-enabled .pane[data-pane="0"] .tree-view::-webkit-scrollbar {
-    width: 0;
-    height: 0;
-  }
+  /* Both panes always keep a visible scrollbar. Sync views & scroll controls
+     movement only; it must never hide either pane's own navigation affordance. */
 `;
 document.head.appendChild(style);
