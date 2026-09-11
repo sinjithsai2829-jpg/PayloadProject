@@ -25,21 +25,27 @@ function isTree(element) {
 }
 
 function isCode(element) {
-  return element?.classList.contains('editor');
+  return element?.classList.contains('editor') || element?.classList.contains('fold-code-view');
+}
+
+function visibleCodeScroller(pane) {
+  const folded = pane?.querySelector('.fold-code-view');
+  if (isVisible(folded)) return folded;
+  const editor = pane?.querySelector('.editor');
+  return isVisible(editor) ? editor : null;
 }
 
 function visibleScroller(pane) {
   const tree = pane?.querySelector('.tree-view');
   if (isVisible(tree)) return tree;
-  const editor = pane?.querySelector('.editor');
-  return isVisible(editor) ? editor : null;
+  return visibleCodeScroller(pane);
 }
 
 function counterpart(index, source) {
   const otherPane = panes[index === 0 ? 1 : 0];
   if (!otherPane || !source) return null;
   if (isTree(source)) return otherPane.querySelector('.tree-view');
-  if (isCode(source)) return otherPane.querySelector('.editor');
+  if (isCode(source)) return visibleCodeScroller(otherPane);
   return null;
 }
 
@@ -83,13 +89,19 @@ function scheduleSync(index, source) {
 }
 
 for (let index = 0; index < panes.length; index += 1) {
-  for (const scroller of [
-    panes[index].querySelector('.editor'),
-    panes[index].querySelector('.tree-view'),
-  ].filter(Boolean)) {
-    scroller.addEventListener('scroll', () => scheduleSync(index, scroller), { passive: true });
-  }
+  const bindScroller = (scroller) => scroller?.addEventListener('scroll', () => scheduleSync(index, scroller), { passive: true });
+  bindScroller(panes[index].querySelector('.editor'));
+  bindScroller(panes[index].querySelector('.tree-view'));
+
+  // Folded code views are injected after this module loads. Bind once they
+  // exist, and also listen for fold-state changes in case a pane switches into
+  // the folded projection later.
+  requestAnimationFrame(() => bindScroller(panes[index].querySelector('.fold-code-view')));
 }
+
+window.addEventListener('payloaddiff:fold-state-changed', () => {
+  if (syncInput?.checked) requestAnimationFrame(alignViewsFromLeft);
+});
 
 function mirrorView(sourceIndex, view) {
   if (!syncInput?.checked || syncingView) return;
