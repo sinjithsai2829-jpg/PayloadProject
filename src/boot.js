@@ -1,4 +1,5 @@
 import './main.js';
+import './payload-auto-detect.js';
 import './enhancements.js';
 import './editable-default.js';
 import './sync-scroll.js';
