@@ -18,6 +18,7 @@ const snapshot = createComparisonSnapshot({
   right,
   ui: {
     views: ['code', 'code'],
+    panelNames: ['Production & Current', 'QA <Candidate>'],
     syncEnabled: true,
     currentDiffIndex: 3,
     codeScroll: [{ top: 500, left: 4 }, { top: 520, left: 5 }],
@@ -35,8 +36,11 @@ assert.ok(html.includes('data-payloaddiff-export="browser-v3"'));
 assert.ok(html.includes('payloaddiff-export-version'));
 assert.ok(html.includes('browser-v3'));
 
-// Fail-safe regression: even if JavaScript fails, both payload textareas must
-// already contain visible saved content in the static HTML.
+// Renamed panel labels are visible in the standalone saved comparison and are
+// HTML-escaped so a user-supplied name cannot inject markup into the export.
+assert.ok(html.includes('<strong>Production &amp; Current</strong>'));
+assert.ok(html.includes('<strong>QA &lt;Candidate&gt;</strong>'));
+
 const textareas = [...html.matchAll(/<textarea class="codeEditor" spellcheck="false" wrap="off">([\s\S]*?)<\/textarea>/g)];
 assert.equal(textareas.length, 2);
 assert.ok(textareas[0][1].includes('&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;'));
@@ -44,7 +48,6 @@ assert.ok(textareas[1][1].includes('&quot;') === false);
 assert.ok(textareas[1][1].includes('"value": 2'));
 assert.ok(html.includes('Loading saved comparison…'));
 
-// Snapshot data still has script-breaking characters escaped.
 assert.ok(!html.includes('left </script><script>alert(1)</script>'));
 assert.ok(html.includes('\\u003c/script\\u003e'));
 
@@ -54,15 +57,11 @@ assert.equal(restored.payloads.right, right);
 assert.equal(restored.mode, 'json');
 assert.equal(restored.ui.currentDiffIndex, 3);
 assert.deepEqual(restored.ui.codeScroll[0], { top: 500, left: 4 });
+assert.deepEqual(restored.ui.panelNames, ['Production & Current', 'QA <Candidate>']);
 
-// The downloaded runtime must compile. The browser-v2 failure was an invalid
-// regular expression produced by nested template escaping.
 const runtime = extractPortableRuntimeScript(html);
 assert.doesNotThrow(() => new vm.Script(runtime));
 assert.ok(runtime.includes("split('\\n')"));
-
-// Regression: JSON path handling in the saved viewer must not rely on the two
-// fragile generated regexes that caused browser-v2 to abort at startup.
 assert.ok(runtime.includes('function isSimplePathKey(text)'));
 assert.ok(runtime.includes('function isPathKeyStart(code)'));
 assert.ok(runtime.includes('function pathAncestors(path){var out=['));
