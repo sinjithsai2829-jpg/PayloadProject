@@ -69,12 +69,22 @@ function normalizeUi(ui) {
 
   return {
     views: views.map((view) => view === 'tree' ? 'tree' : 'code'),
+    panelNames: normalizePanelNames(ui.panelNames),
     syncEnabled: ui.syncEnabled !== false,
     currentDiffIndex: Number.isInteger(ui.currentDiffIndex) && ui.currentDiffIndex >= 0 ? ui.currentDiffIndex : 0,
     selectedLines: normalizeSelectedLines(ui.selectedLines),
     codeScroll: normalizeScrollPair(ui.codeScroll),
     treeScroll: normalizeScrollPair(ui.treeScroll),
   };
+}
+
+function normalizePanelNames(value) {
+  const names = Array.isArray(value) ? value.slice(0, 2) : [];
+  while (names.length < 2) names.push('');
+  return names.map((name, index) => {
+    const text = String(name ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    return text || `File ${index + 1}`;
+  });
 }
 
 function normalizeSelectedLines(value) {
