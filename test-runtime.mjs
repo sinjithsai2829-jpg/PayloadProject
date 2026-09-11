@@ -85,6 +85,19 @@ assert.ok(editableCode.includes('editor-line-number'));
 assert.ok(editableCode.includes("editor.classList.remove('hidden')"));
 assert.ok(!editableCode.includes('virtual-code'));
 
+// JSON and XML Code views share indentation/scope guides. The implementation is
+// format-agnostic and renders only visible lines so 50k+ line payloads do not
+// create a DOM node for every guide in the document.
+assert.ok(editableCode.includes('editor-indent-guides'));
+assert.ok(editableCode.includes('editor-indent-guide'));
+assert.ok(editableCode.includes('renderIndentGuides(index)'));
+assert.ok(editableCode.includes('leadingIndentColumns'));
+assert.ok(editableCode.includes('inferIndentUnit'));
+assert.ok(editableCode.includes('metrics.first'));
+assert.ok(editableCode.includes('metrics.last'));
+assert.ok(!editableCode.includes("mode === 'json'"));
+assert.ok(!editableCode.includes("mode === 'xml'"));
+
 // Clear fully resets stale comparison navigation.
 assert.ok(main.includes("els.compareSummary.innerHTML = ''"));
 assert.ok(main.includes("els.diffPosition.textContent = '0 of 0'"));
