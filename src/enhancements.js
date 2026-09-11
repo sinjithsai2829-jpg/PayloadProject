@@ -24,17 +24,23 @@ searchWorker.onmessage = ({ data }) => {
   data.ok ? pending.resolve(data.result) : pending.reject(new Error(data.error));
 };
 
-function searchInWorker(text, query) {
+function currentMode() {
+  return document.querySelector('.mode-btn.active')?.dataset.mode || 'json';
+}
+
+function searchInWorker(mode, text, query) {
   return new Promise((resolve, reject) => {
     const id = ++searchSeq;
     searchPending.set(id, { resolve, reject });
-    searchWorker.postMessage({ id, text, query, limit: SEARCH_LIMIT });
+    searchWorker.postMessage({ id, mode, text, query, limit: SEARCH_LIMIT });
   });
 }
 
+// Shared workspace feature: visible in JSON and XML. In JSON Tree it mirrors
+// branches; in XML Tree it mirrors the same path-based expansion behavior.
 const syncControl = document.createElement('label');
 syncControl.className = 'sync-toggle enhancement-sync';
-syncControl.innerHTML = '<input type="checkbox" checked /> Sync tree navigation';
+syncControl.innerHTML = '<input type="checkbox" checked /> Sync views & scroll';
 document.querySelector('.toolbar-right')?.prepend(syncControl);
 syncControl.querySelector('input')?.addEventListener('change', (event) => {
   syncTrees = event.target.checked;
@@ -47,7 +53,6 @@ for (let index = 0; index < 2; index += 1) {
   const tabs = panes[index]?.querySelector('.view-tabs');
   if (!tabs) continue;
 
-  // Group the Code/Tree tabs and tree search controls into one stable toolbar.
   let tools = tabs.parentElement?.classList.contains('pane-tools') ? tabs.parentElement : null;
   if (!tools) {
     tools = document.createElement('div');
@@ -92,35 +97,43 @@ clearBtn?.addEventListener('click', () => {
 for (const button of document.querySelectorAll('.mode-btn')) {
   button.addEventListener('click', () => {
     requestAnimationFrame(() => {
-      const json = button.dataset.mode === 'json';
-      document.querySelectorAll('.tree-search-control').forEach((node) => node.classList.toggle('hidden', !json));
-      syncControl.classList.toggle('hidden', !json);
+      const xml = button.dataset.mode === 'xml';
+      searchInputs.forEach((input) => {
+        if (!input) return;
+        input.placeholder = xml
+          ? 'Search XML element, attribute, path, or value'
+          : 'Search JSON key, path, or value';
+      });
+      document.querySelectorAll('.tree-search-control').forEach((node) => node.classList.remove('hidden'));
+      syncControl.classList.remove('hidden');
+      [0, 1].forEach(resetSearch);
     });
   });
 }
 
 async function runSearch(index) {
+  const mode = currentMode();
   const query = searchInputs[index]?.value.trim();
-  if (!query) return setStatus('Enter a JSON key, path, or value to search.', true);
+  if (!query) return setStatus(`Enter a ${mode.toUpperCase()} key, element, path, attribute, or value to search.`, true);
 
   const text = editors[index]?.value.trim();
   if (!text) return setStatus(`File ${index + 1} is empty.`, true);
 
   try {
-    setStatus(`Searching File ${index + 1} tree…`);
-    const result = await searchInWorker(text, query);
+    setStatus(`Searching File ${index + 1} ${mode.toUpperCase()} tree…`);
+    const result = await searchInWorker(mode, text, query);
     const pane = state[index];
     pane.searchQuery = query;
     pane.searchResults = result.paths;
     pane.searchIndex = result.paths.length ? 0 : -1;
     updateSearchCount(index, result.truncated);
 
-    if (!result.paths.length) return setStatus(`No JSON tree matches for “${query}”.`, true);
+    if (!result.paths.length) return setStatus(`No ${mode.toUpperCase()} tree matches for “${query}”.`, true);
 
     await revealPath(index, result.paths[0], true);
     setStatus(`Found ${result.paths.length.toLocaleString()}${result.truncated ? '+' : ''} matches in ${result.elapsedMs} ms.`);
   } catch (error) {
-    setStatus(`Search requires formatted valid JSON: ${error.message}`, true);
+    setStatus(`Search requires structurally valid ${mode.toUpperCase()} after recovery: ${error.message}`, true);
   }
 }
 
@@ -158,7 +171,7 @@ async function revealPath(index, path, mirror) {
   if (!treeTab.classList.contains('active')) treeTab.click();
   await nextFrame();
 
-  const ancestors = pathAncestors(path);
+  const ancestors = pathAncestors(path, currentMode());
   for (const ancestor of ancestors.slice(0, -1)) await ensureExpanded(index, ancestor);
   await ensureVisible(index, path);
   highlightPath(index, path);
@@ -187,7 +200,7 @@ async function ensureExpanded(index, path) {
 
 async function ensureVisible(index, path) {
   for (let guard = 0; guard < 250 && !findRow(index, path); guard += 1) {
-    const parent = parentPath(path);
+    const parent = parentPath(path, currentMode());
     if (!parent || parent === path) break;
 
     const parentRow = findRow(index, parent);
@@ -245,9 +258,20 @@ async function mirrorToggle(source, path, shouldExpand) {
   if (expanded !== shouldExpand) toggle.click();
 }
 
-function pathAncestors(path) {
+function pathAncestors(path, mode) {
+  if (path === '$') return ['$'];
+  if (mode === 'xml') {
+    const out = ['$'];
+    const parts = path.slice(1).split('/').filter(Boolean);
+    let current = '$';
+    for (const part of parts) {
+      current += `/${part}`;
+      out.push(current);
+    }
+    return out;
+  }
+
   const out = ['$'];
-  if (path === '$') return out;
   const tokens = path.slice(1).match(/\.[A-Za-z_$][\w$]*|\[(?:\d+|"(?:\\.|[^"])*")\]/g) || [];
   let current = '$';
   for (const token of tokens) {
@@ -257,8 +281,8 @@ function pathAncestors(path) {
   return out;
 }
 
-function parentPath(path) {
-  const ancestors = pathAncestors(path);
+function parentPath(path, mode) {
+  const ancestors = pathAncestors(path, mode);
   return ancestors.length > 1 ? ancestors[ancestors.length - 2] : null;
 }
 
