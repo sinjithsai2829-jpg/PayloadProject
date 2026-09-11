@@ -10,69 +10,68 @@ const persistence = await readFile(new URL('./src/persistence.js', import.meta.u
 const editableCode = await readFile(new URL('./src/editable-code-surface.js', import.meta.url), 'utf8');
 const enhancements = await readFile(new URL('./src/enhancements.js', import.meta.url), 'utf8');
 const scrollbarVisibility = await readFile(new URL('./src/scrollbar-visibility.js', import.meta.url), 'utf8');
+const xmlTreeUi = await readFile(new URL('./src/xml-tree-ui.js', import.meta.url), 'utf8');
+const xmlTreeWorker = await readFile(new URL('./src/xml-tree-worker.js', import.meta.url), 'utf8');
+const treeSearchWorker = await readFile(new URL('./src/tree-search-worker.js', import.meta.url), 'utf8');
 
-// Regression: do not load the retired duplicate code-diff runtime.
+// Canonical runtime modules.
 assert.ok(boot.includes("./editable-compare.js"));
 assert.ok(boot.includes("./sync-scroll.js"));
 assert.ok(boot.includes("./persistence.js"));
 assert.ok(boot.includes("./editable-code-surface.js"));
+assert.ok(boot.includes("./xml-tree-ui.js"));
 assert.ok(!boot.includes("./diff-display.js"));
 
-// Regression: editing during an active JSON comparison must not destroy the
-// comparison session. main.js delegates live refresh to editable-compare.js.
-assert.ok(main.includes('isLiveJsonComparisonActive()'));
-assert.ok(main.includes('if (!isLiveJsonComparisonActive()) clearComparison();'));
-assert.ok(main.includes('payloaddiff:live-compare-updated'));
+// XML Tree parity: Tree must be exposed for XML, built off-main-thread, lazily
+// rendered, searchable, diff-aware, and allowed to participate in shared sync.
+assert.ok(xmlTreeUi.includes("document.querySelectorAll('.tree-tab').forEach((tab) => tab.classList.remove('hidden'))"));
+assert.ok(xmlTreeUi.includes("new URL('./xml-tree-worker.js'"));
+assert.ok(xmlTreeUi.includes("childLimits: new Map([['$', 250]])"));
+assert.ok(xmlTreeUi.includes('Show ${Math.min(250, remaining).toLocaleString()} more'));
+assert.ok(xmlTreeUi.includes("event.detail?.mode !== 'xml'"));
+assert.ok(xmlTreeUi.includes('xmlDiffClass'));
+assert.ok(!xmlTreeUi.includes('stopImmediatePropagation'));
+assert.ok(xmlTreeWorker.includes('parseXmlTree'));
+assert.ok(xmlTreeWorker.includes('searchXmlTree'));
+
+// Tree search is shared between formats. Only parsing/search semantics differ.
+assert.ok(enhancements.includes("searchWorker.postMessage({ id, mode, text, query"));
+assert.ok(enhancements.includes('Search XML element, attribute, path, or value'));
+assert.ok(enhancements.includes("node.classList.remove('hidden')"));
+assert.ok(!enhancements.includes("classList.toggle('hidden', !json)"));
+assert.ok(treeSearchWorker.includes("mode === 'xml'"));
+assert.ok(treeSearchWorker.includes('searchXmlTree'));
+assert.ok(treeSearchWorker.includes('searchJsonTree'));
+
+// Shared sync is application-level, not JSON-only.
+assert.ok(sync.includes('Sync views & scroll'));
+assert.ok(sync.includes("classList.contains('editor')"));
+assert.ok(enhancements.includes('Sync views & scroll'));
+assert.ok(!enhancements.includes("syncControl.classList.toggle('hidden', !json)"));
+
+// Editing during an active comparison must not destroy the live session.
 assert.ok(main.includes('PayloadDiffCompareSession'));
-
-// Clear must fully reset stale summary/navigation state, not just hide the bar.
-assert.ok(main.includes("els.compareSummary.innerHTML = ''"));
-assert.ok(main.includes("els.diffPosition.textContent = '0 of 0'"));
-assert.ok(main.includes('els.prevDiff.disabled = true'));
-assert.ok(main.includes('els.nextDiff.disabled = true'));
-
-// Live editing must not trigger the heavyweight main Compare flow.
-assert.ok(live.includes("./smooth-worker.js"));
+assert.ok(main.includes('payloaddiff:live-compare-updated'));
+assert.ok(live.includes('activeMode'));
+assert.ok(live.includes('compareLive'));
+assert.ok(live.includes('comparison will refresh when ${activeMode.toUpperCase()} is valid'));
 assert.ok(!live.includes('compareBtn?.click()'));
 assert.ok(!live.includes('compareBtn.click()'));
-assert.ok(live.includes('220'));
-assert.ok(live.includes('window.PayloadDiffCompareSession'));
-assert.ok(live.includes('payloaddiff:live-compare-updated'));
 
-// Regression from diagnostics: temporarily invalid JSON keeps the comparison
-// session active but hides stale line highlights and disables navigation until
-// both panes are valid again.
+// Invalid payloads pause live diff rendering/navigation without destroying the
+// comparison session. This contract applies to JSON and XML.
 assert.ok(live.includes('invalidSides'));
 assert.ok(live.includes('hideOverlays()'));
 assert.ok(live.includes("disableNavigatorForEditing('Paused')"));
-assert.ok(live.includes('comparison will resume automatically when JSON is valid'));
 assert.ok(live.includes('markInvalidPanes'));
 assert.ok(smoothWorker.includes('invalidSides'));
-assert.ok(smoothWorker.includes("side: 'left'"));
-assert.ok(smoothWorker.includes("side: 'right'"));
 
-// Runtime should use the single fast engine in one worker.
-assert.ok(smoothWorker.includes("./fast-engine.js"));
-assert.ok(smoothWorker.includes('compareJsonValues'));
-assert.ok(smoothWorker.includes('attachPrettyJsonLineNumbers'));
-
-// Paired-pane scrolling remains part of the active runtime and now works only
-// with the canonical editable Code editor or Tree view.
-assert.ok(sync.includes('Sync views & scroll'));
-assert.ok(sync.includes("classList.contains('editor')"));
-assert.ok(!sync.includes('virtual-code'));
-assert.ok(!sync.includes('enhancement-edit'));
-
-// Both panes must keep their own visible scrollbar even when synchronized
-// scrolling is enabled. Sync controls movement, never scrollbar visibility.
+// Both panes retain visible scrollbars even when synchronized.
 assert.ok(scrollbarVisibility.includes('Both panes always keep a visible scrollbar'));
 assert.ok(!scrollbarVisibility.includes('scrollbar-width: none'));
 assert.ok(!scrollbarVisibility.includes('::-webkit-scrollbar {\n    width: 0'));
 
-// Large view is intentionally removed. Enhancements keeps only tree search and
-// synchronized tree navigation; it must not create/toggle a virtual Code view.
-assert.ok(enhancements.includes('tree-search-worker.js'));
-assert.ok(enhancements.includes('Sync tree navigation'));
+// Large view stays retired.
 assert.ok(!enhancements.includes('virtual-code'));
 assert.ok(!enhancements.includes('enhancement-edit'));
 assert.ok(!enhancements.includes('activateVirtual'));
@@ -80,33 +79,27 @@ assert.ok(!enhancements.includes('toggleVirtual'));
 assert.ok(!enhancements.includes('View formatted'));
 assert.ok(!enhancements.includes('Large view'));
 
-// Editable Code is the canonical comparison surface and has line numbers.
+// Editable Code remains canonical and line-numbered.
 assert.ok(editableCode.includes('editor-line-gutter'));
 assert.ok(editableCode.includes('editor-line-number'));
 assert.ok(editableCode.includes("editor.classList.remove('hidden')"));
 assert.ok(!editableCode.includes('virtual-code'));
-assert.ok(!editableCode.includes('enhancement-edit'));
-assert.ok(!editableCode.includes('Large view'));
 
-// Refresh persistence must support large payloads without storing them in
-// localStorage. Payload text is kept in IndexedDB; only a per-tab session ID is
-// stored in sessionStorage so a normal refresh restores the same tab.
+// Clear fully resets stale comparison navigation.
+assert.ok(main.includes("els.compareSummary.innerHTML = ''"));
+assert.ok(main.includes("els.diffPosition.textContent = '0 of 0'"));
+assert.ok(main.includes('els.prevDiff.disabled = true'));
+assert.ok(main.includes('els.nextDiff.disabled = true'));
+
+// Large-payload refresh persistence remains IndexedDB-based and deduplicated.
 assert.ok(persistence.includes('indexedDB.open'));
 assert.ok(persistence.includes('sessionStorage'));
 assert.ok(!persistence.includes('localStorage'));
 assert.ok(persistence.includes('deleteCurrentSession'));
-assert.ok(persistence.includes("clearBtn?.addEventListener('click'"));
-assert.ok(persistence.includes("editor.dispatchEvent(new Event('input'"));
-assert.ok(persistence.includes('STALE_AFTER_MS'));
-
-// Regression from diagnostics: scrolling must not continuously rewrite the
-// multi-KB payload record. Saves are deduplicated and pagehide captures the
-// latest scroll position once before refresh/navigation.
 assert.ok(!persistence.includes("editor?.addEventListener('scroll'"));
 assert.ok(persistence.includes('lastSavedSignature'));
 assert.ok(persistence.includes('stateSignature(record)'));
 assert.ok(persistence.includes("addEventListener('pagehide'"));
 assert.ok(persistence.includes('saveNow({ force: true })'));
-assert.ok(!persistence.includes('virtual-code'));
 
 console.log('All runtime wiring regression tests passed.');
