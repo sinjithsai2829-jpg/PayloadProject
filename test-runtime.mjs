@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 const boot = await readFile(new URL('./src/boot.js', import.meta.url), 'utf8');
 const main = await readFile(new URL('./src/main.js', import.meta.url), 'utf8');
 const live = await readFile(new URL('./src/editable-compare.js', import.meta.url), 'utf8');
+const inlineDiff = await readFile(new URL('./src/inline-diff-highlights.js', import.meta.url), 'utf8');
 const smoothWorker = await readFile(new URL('./src/smooth-worker.js', import.meta.url), 'utf8');
 const sync = await readFile(new URL('./src/sync-scroll.js', import.meta.url), 'utf8');
 const persistence = await readFile(new URL('./src/persistence.js', import.meta.url), 'utf8');
@@ -16,6 +17,7 @@ const treeSearchWorker = await readFile(new URL('./src/tree-search-worker.js', i
 
 // Canonical runtime modules.
 assert.ok(boot.includes("./editable-compare.js"));
+assert.ok(boot.includes("./inline-diff-highlights.js"));
 assert.ok(boot.includes("./sync-scroll.js"));
 assert.ok(boot.includes("./persistence.js"));
 assert.ok(boot.includes("./editable-code-surface.js"));
@@ -65,6 +67,17 @@ assert.ok(live.includes('hideOverlays()'));
 assert.ok(live.includes("disableNavigatorForEditing('Paused')"));
 assert.ok(live.includes('markInvalidPanes'));
 assert.ok(smoothWorker.includes('invalidSides'));
+
+// Exact changed text is highlighted inside the line, not only with a broad
+// full-line band. The implementation consumes the shared comparison event and
+// contains no JSON/XML mode gate, so it applies to both payload formats.
+assert.ok(inlineDiff.includes('inline-diff-segment'));
+assert.ok(inlineDiff.includes('changedRange(left, right)'));
+assert.ok(inlineDiff.includes("window.addEventListener('payloaddiff:live-compare-updated'"));
+assert.ok(inlineDiff.includes("kind === 'replacement' ? 'removed' : 'modified'"));
+assert.ok(inlineDiff.includes("kind === 'replacement' ? 'added' : 'modified'"));
+assert.ok(!inlineDiff.includes("mode === 'json'"));
+assert.ok(!inlineDiff.includes("mode === 'xml'"));
 
 // Both panes retain visible scrollbars even when synchronized.
 assert.ok(scrollbarVisibility.includes('Both panes always keep a visible scrollbar'));
