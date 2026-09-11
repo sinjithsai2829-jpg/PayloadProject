@@ -41,18 +41,18 @@ assert.ok(html.includes('browser-v3'));
 assert.ok(html.includes('<strong>Production &amp; Current</strong>'));
 assert.ok(html.includes('<strong>QA &lt;Candidate&gt;</strong>'));
 
-// Difference navigation parity: saved browser comparisons use the same compact
-// symbol-only first / previous / next / last controls as the live app.
+// Difference navigation parity: saved browser comparisons use browser-stable
+// SVG first / previous / next / last controls instead of font-dependent glyphs.
 assert.ok(html.includes('id="first" title="First difference"'));
 assert.ok(html.includes('id="prev" title="Previous difference"'));
 assert.ok(html.includes('id="next" title="Next difference"'));
 assert.ok(html.includes('id="last" title="Last difference"'));
-assert.ok(html.includes('>⤒</button>'));
-assert.ok(html.includes('>↑</button>'));
-assert.ok(html.includes('>↓</button>'));
-assert.ok(html.includes('>⤓</button>'));
+assert.ok(html.includes('<svg viewBox="0 0 20 20" aria-hidden="true">'));
+assert.ok(html.includes('stroke:currentColor'));
 assert.ok(!html.includes('← Previous'));
 assert.ok(!html.includes('Next →'));
+assert.ok(!html.includes('>⤒</button>'));
+assert.ok(!html.includes('>⤓</button>'));
 
 const textareas = [...html.matchAll(/<textarea class="codeEditor" spellcheck="false" wrap="off">([\s\S]*?)<\/textarea>/g)];
 assert.equal(textareas.length, 2);
