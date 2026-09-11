@@ -9,6 +9,8 @@ const state = [0, 1].map(() => ({
   expanded: new Set(['$']),
   childLimits: new Map([['$', 250]]),
   diffLines: [],
+  currentDiffLine: null,
+  currentDiffPath: null,
 }));
 
 let seq = 0;
@@ -68,6 +70,8 @@ for (let index = 0; index < panes.length; index += 1) {
   editors[index]?.addEventListener('input', () => {
     state[index].model = null;
     state[index].sourceText = '';
+    state[index].currentDiffLine = null;
+    state[index].currentDiffPath = null;
     worker.postMessage({ id: ++seq, task: 'clear', paneIndex: index });
     if (isXmlMode() && panes[index]?.querySelector('.view-btn[data-view="tree"]')?.classList.contains('active')) {
       showCode(index);
@@ -77,17 +81,29 @@ for (let index = 0; index < panes.length; index += 1) {
 
 window.addEventListener('payloaddiff:live-compare-updated', (event) => {
   if (event.detail?.mode !== 'xml' || !Array.isArray(event.detail.diffs)) return;
-  state[0].diffLines = buildDiffLines(event.detail.diffs, 0);
-  state[1].diffLines = buildDiffLines(event.detail.diffs, 1);
+  const diffs = event.detail.diffs;
+  const currentIndex = Number.isInteger(event.detail.currentDiffIndex) ? event.detail.currentDiffIndex : -1;
+  const current = currentIndex >= 0 ? diffs[currentIndex] : null;
+
+  state[0].diffLines = buildDiffLines(diffs, 0);
+  state[1].diffLines = buildDiffLines(diffs, 1);
+  state[0].currentDiffLine = current ? (current.leftLine || current.rightLine || null) : null;
+  state[1].currentDiffLine = current ? (current.rightLine || current.leftLine || null) : null;
+
   for (let index = 0; index < 2; index += 1) {
-    if (isXmlMode() && panes[index]?.querySelector('.view-btn[data-view="tree"]')?.classList.contains('active')) {
-      renderXmlTree(index);
-    }
+    if (!isXmlMode() || !panes[index]?.querySelector('.view-btn[data-view="tree"]')?.classList.contains('active')) continue;
+    const line = state[index].currentDiffLine;
+    if (line) revealXmlDifference(index, line);
+    else renderXmlTree(index);
   }
 });
 
 window.addEventListener('payloaddiff:comparison-reset', () => {
-  state.forEach((paneState) => { paneState.diffLines = []; });
+  state.forEach((paneState) => {
+    paneState.diffLines = [];
+    paneState.currentDiffLine = null;
+    paneState.currentDiffPath = null;
+  });
 });
 
 async function showXmlTree(index) {
@@ -108,7 +124,9 @@ async function showXmlTree(index) {
     }
 
     activateView(index, 'tree');
-    renderXmlTree(index);
+    const line = state[index].currentDiffLine;
+    if (line) await revealXmlDifference(index, line);
+    else renderXmlTree(index);
     setStatus('XML Tree view ready.');
   } catch (error) {
     setStatus(`Tree view unavailable: ${error.message}`, true);
@@ -127,6 +145,91 @@ function activateView(index, view) {
   });
   editors[index]?.classList.toggle('hidden', view !== 'code');
   trees[index]?.classList.toggle('hidden', view !== 'tree');
+}
+
+async function revealXmlDifference(index, line) {
+  const model = state[index].model;
+  const root = trees[index];
+  if (!model || !root || !line) {
+    renderXmlTree(index);
+    return;
+  }
+
+  const chain = findDeepestNodeChain(model, line);
+  if (!chain.length) {
+    state[index].currentDiffPath = null;
+    renderXmlTree(index);
+    return;
+  }
+
+  state[index].currentDiffPath = chain[chain.length - 1].path || '$';
+  ensureChainVisible(index, chain);
+  renderXmlTree(index);
+  await nextFrame();
+
+  const target = findTreeRowByPath(root, state[index].currentDiffPath)
+    || findNearestTreeRowForLine(root, line);
+  if (target) target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+function findDeepestNodeChain(root, line) {
+  const chain = [];
+
+  function visit(node) {
+    if (!node) return false;
+    const start = Number(node.lineStart) || 1;
+    const end = Number(node.lineEnd) || start;
+    if (line < start || line > end) return false;
+
+    chain.push(node);
+    for (const child of node.children || []) {
+      if (visit(child)) return true;
+    }
+    return true;
+  }
+
+  visit(root);
+  return chain;
+}
+
+function ensureChainVisible(index, chain) {
+  const paneState = state[index];
+  for (let position = 0; position < chain.length; position += 1) {
+    const node = chain[position];
+    const path = node.path || '$';
+    if (position < chain.length - 1) paneState.expanded.add(path);
+
+    const child = chain[position + 1];
+    if (!child || !Array.isArray(node.children)) continue;
+    const childIndex = node.children.findIndex((candidate) => candidate.path === child.path);
+    if (childIndex >= 0) {
+      paneState.childLimits.set(path, Math.max(paneState.childLimits.get(path) || 250, childIndex + 1));
+    }
+  }
+}
+
+function findTreeRowByPath(root, path) {
+  if (!path) return null;
+  for (const row of root.querySelectorAll('.tree-row[data-path]')) {
+    if (row.dataset.path === path) return row;
+  }
+  return null;
+}
+
+function findNearestTreeRowForLine(root, line) {
+  let best = null;
+  let bestDistance = Infinity;
+  for (const row of root.querySelectorAll('.tree-row[data-line-start]')) {
+    const start = Number(row.dataset.lineStart) || 0;
+    const end = Number(row.dataset.lineEnd) || start;
+    const distance = line < start ? start - line : line > end ? line - end : 0;
+    if (distance < bestDistance) {
+      best = row;
+      bestDistance = distance;
+      if (distance === 0) break;
+    }
+  }
+  return best;
 }
 
 function renderXmlTree(index) {
@@ -148,9 +251,12 @@ function appendNode(parent, node, label, path, depth, paneIndex) {
   const expandable = Array.isArray(node.children) && node.children.length > 0;
   const expanded = state[paneIndex].expanded.has(path);
   const row = document.createElement('div');
-  row.className = `tree-row ${xmlDiffClass(node, paneIndex)}`;
+  const current = state[paneIndex].currentDiffPath === path;
+  row.className = `tree-row ${xmlDiffClass(node, paneIndex)}${current ? ' tree-diff-current' : ''}`.trim();
   row.style.setProperty('--depth', depth);
   row.dataset.path = path;
+  row.dataset.lineStart = String(node.lineStart || 1);
+  row.dataset.lineEnd = String(node.lineEnd || node.lineStart || 1);
 
   const toggle = document.createElement('button');
   toggle.className = 'tree-toggle';
@@ -171,9 +277,12 @@ function appendNode(parent, node, label, path, depth, paneIndex) {
   if (node.kind === 'element' && node.attributes?.length) {
     for (const attribute of node.attributes) {
       const attributeRow = document.createElement('div');
-      attributeRow.className = `tree-row ${xmlDiffClass({ lineStart: node.lineStart, lineEnd: node.lineStart }, paneIndex)}`;
+      const attributeCurrent = state[paneIndex].currentDiffPath === attribute.path;
+      attributeRow.className = `tree-row ${xmlDiffClass({ lineStart: node.lineStart, lineEnd: node.lineStart }, paneIndex)}${attributeCurrent ? ' tree-diff-current' : ''}`.trim();
       attributeRow.style.setProperty('--depth', depth + 1);
       attributeRow.dataset.path = attribute.path;
+      attributeRow.dataset.lineStart = String(node.lineStart || 1);
+      attributeRow.dataset.lineEnd = String(node.lineStart || 1);
 
       const spacer = document.createElement('button');
       spacer.className = 'tree-toggle';
@@ -280,8 +389,24 @@ function lowerBound(entries, line) {
   return lo;
 }
 
+function nextFrame() {
+  return new Promise((resolve) => requestAnimationFrame(resolve));
+}
+
 function setStatus(message, error = false) {
   if (!statusText) return;
   statusText.textContent = message;
   statusText.classList.toggle('error', error);
 }
+
+const style = document.createElement('style');
+style.id = 'xml-tree-navigation-styles';
+style.textContent = `
+  .tree-row.tree-diff-current {
+    outline: 2px solid rgba(96,165,250,.95);
+    outline-offset: -2px;
+    position: relative;
+    z-index: 1;
+  }
+`;
+document.head.appendChild(style);
