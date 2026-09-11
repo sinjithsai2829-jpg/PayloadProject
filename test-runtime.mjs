@@ -5,6 +5,7 @@ const boot = await readFile(new URL('./src/boot.js', import.meta.url), 'utf8');
 const main = await readFile(new URL('./src/main.js', import.meta.url), 'utf8');
 const live = await readFile(new URL('./src/editable-compare.js', import.meta.url), 'utf8');
 const inlineDiff = await readFile(new URL('./src/inline-diff-highlights.js', import.meta.url), 'utf8');
+const codeFolding = await readFile(new URL('./src/code-folding.js', import.meta.url), 'utf8');
 const smoothWorker = await readFile(new URL('./src/smooth-worker.js', import.meta.url), 'utf8');
 const sync = await readFile(new URL('./src/sync-scroll.js', import.meta.url), 'utf8');
 const persistence = await readFile(new URL('./src/persistence.js', import.meta.url), 'utf8');
@@ -18,11 +19,29 @@ const treeSearchWorker = await readFile(new URL('./src/tree-search-worker.js', i
 // Canonical runtime modules.
 assert.ok(boot.includes("./editable-compare.js"));
 assert.ok(boot.includes("./inline-diff-highlights.js"));
+assert.ok(boot.includes("./code-folding.js"));
 assert.ok(boot.includes("./sync-scroll.js"));
 assert.ok(boot.includes("./persistence.js"));
 assert.ok(boot.includes("./editable-code-surface.js"));
 assert.ok(boot.includes("./xml-tree-ui.js"));
 assert.ok(!boot.includes("./diff-display.js"));
+
+// Shared Code folding is available to JSON and XML. JSON detects object/array
+// line ranges, XML detects element ranges, while projection/rendering and
+// persistence are shared by both formats.
+assert.ok(codeFolding.includes("mode === 'xml' ? findXmlFoldRanges(text) : findJsonFoldRanges(text)"));
+assert.ok(codeFolding.includes('findJsonFoldRanges'));
+assert.ok(codeFolding.includes('findXmlFoldRanges'));
+assert.ok(codeFolding.includes('code-fold-toggle'));
+assert.ok(codeFolding.includes('fold-row-toggle'));
+assert.ok(codeFolding.includes('fold-code-view'));
+assert.ok(codeFolding.includes('foldedRanges'));
+assert.ok(codeFolding.includes('revealCurrentDifference'));
+assert.ok(codeFolding.includes('syncInput?.checked'));
+assert.ok(sync.includes("classList.contains('fold-code-view')"));
+assert.ok(persistence.includes('PayloadDiffCodeFolding'));
+assert.ok(persistence.includes('foldedRanges'));
+assert.ok(scrollbarVisibility.includes('.fold-code-view'));
 
 // XML Tree parity: Tree must be exposed for XML, built off-main-thread, lazily
 // rendered, searchable, diff-aware, and allowed to participate in shared sync.
