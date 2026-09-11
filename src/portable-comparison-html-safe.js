@@ -70,10 +70,14 @@ export function repairGeneratedRuntimeFunctions(html) {
 
 export function patchPortableDifferenceNavigation(html) {
   let output = String(html);
+  const firstIcon = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4.5h12M10 16V7M6.5 10.5 10 7l3.5 3.5"/></svg>';
+  const previousIcon = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V5.5M6.5 9 10 5.5 13.5 9"/></svg>';
+  const nextIcon = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v10.5M6.5 11 10 14.5l3.5-3.5"/></svg>';
+  const lastIcon = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 15.5h12M10 4v9M6.5 10 10 13.5l3.5-3.5"/></svg>';
 
   output = output.replace(
     '<div class="nav"><button id="prev">← Previous</button><strong id="position">0 of 0</strong><button id="next">Next →</button></div>',
-    '<div class="nav"><button id="first" title="First difference" aria-label="First difference">⤒</button><button id="prev" title="Previous difference" aria-label="Previous difference">↑</button><strong id="position">0 of 0</strong><button id="next" title="Next difference" aria-label="Next difference">↓</button><button id="last" title="Last difference" aria-label="Last difference">⤓</button></div>',
+    `<div class="nav" aria-label="Difference navigation"><button id="first" title="First difference" aria-label="First difference">${firstIcon}</button><button id="prev" title="Previous difference" aria-label="Previous difference">${previousIcon}</button><strong id="position">0 of 0</strong><button id="next" title="Next difference" aria-label="Next difference">${nextIcon}</button><button id="last" title="Last difference" aria-label="Last difference">${lastIcon}</button></div>`,
   );
 
   output = output.replace(
@@ -103,7 +107,7 @@ export function patchPortableDifferenceNavigation(html) {
 
   output = output.replace(
     '.nav{display:flex;gap:8px;align-items:center;white-space:nowrap}',
-    '.nav{display:flex;gap:6px;align-items:center;white-space:nowrap}.nav button{width:34px;min-width:34px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:17px;line-height:1}.nav strong{min-width:72px;text-align:center}',
+    '.nav{display:inline-flex;gap:5px;align-items:center;min-height:34px;white-space:nowrap}.nav button{width:36px;min-width:36px;height:34px;padding:0;display:inline-flex;align-items:center;justify-content:center;line-height:1}.nav button svg{width:19px;height:19px;display:block;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}.nav button:disabled{opacity:.34}.nav strong{min-width:78px;padding:0 9px;text-align:center;font-variant-numeric:tabular-nums}',
   );
 
   return output;
