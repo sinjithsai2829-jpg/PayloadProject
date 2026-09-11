@@ -1,6 +1,7 @@
 import { comparePayloads } from './core.js';
 import { searchJsonTree } from './search.js';
 import { formatJsonBestEffort, formatXmlBestEffort } from './resilient-format.js';
+import { detectPayloadIssues } from './syntax-issues.js';
 
 const jsonCache = new Map();
 
@@ -13,6 +14,8 @@ self.onmessage = (event) => {
       result = payload.mode === 'xml'
         ? formatXmlBestEffort(payload.text)
         : formatJsonBestEffort(payload.text);
+
+      result.issues = detectPayloadIssues({ mode: payload.mode, text: result.formatted });
 
       if (payload.mode === 'json' && Number.isInteger(payload.paneIndex)) {
         if (result.parsed != null) jsonCache.set(payload.paneIndex, result.parsed);
@@ -31,6 +34,11 @@ self.onmessage = (event) => {
         jsonCache.set(payload.paneIndex, parsed);
       }
       result = searchJsonTree(parsed, payload.query, payload.limit);
+    } else if (task === 'validate') {
+      result = {
+        mode: payload.mode,
+        issues: detectPayloadIssues({ mode: payload.mode, text: payload.text }),
+      };
     } else if (task === 'clearPaneCache') {
       jsonCache.delete(payload.paneIndex);
       result = true;
