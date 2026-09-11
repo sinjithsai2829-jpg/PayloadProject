@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node server.mjs",
-    "test": "node test.mjs && node test-runtime.mjs && node test-diagnostics.mjs && node test-diff-navigation.mjs && node test-comparison-file.mjs && node test-portable-comparison-html.mjs && node test-input-normalization.mjs && node test-resilient-format.mjs && node test-syntax-issues.mjs && node test-xml-tree.mjs",
+    "test": "node test.mjs && node test-runtime.mjs && node test-diagnostics.mjs && node test-diff-navigation.mjs && node test-comparison-file.mjs && node test-portable-comparison-html.mjs && node test-input-normalization.mjs && node test-resilient-format.mjs && node test-syntax-issues.mjs && node test-xml-tree.mjs && node test-code-folding.mjs",
     "build": "node build.mjs"
   }
 }
