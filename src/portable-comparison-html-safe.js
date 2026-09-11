@@ -16,6 +16,7 @@ export function createPortableComparisonHtml(snapshot) {
   let html = createLegacyPortableComparisonHtml(snapshot);
   html = repairInlineRuntimeEscapes(html);
   html = repairGeneratedRuntimeFunctions(html);
+  html = patchPortableDifferenceNavigation(html);
   html = addExportVersionMarker(html);
   html = prefillPanelNames(html, snapshot);
   html = prefillPayloadTextareas(html, snapshot);
@@ -63,6 +64,47 @@ export function repairGeneratedRuntimeFunctions(html) {
     "}",
   ].join('');
   output = replaceGeneratedFunction(output, 'function pathAncestors(path){', 'function findTreeRow', safePathAncestors);
+
+  return output;
+}
+
+export function patchPortableDifferenceNavigation(html) {
+  let output = String(html);
+
+  output = output.replace(
+    '<div class="nav"><button id="prev">← Previous</button><strong id="position">0 of 0</strong><button id="next">Next →</button></div>',
+    '<div class="nav"><button id="first" title="First difference" aria-label="First difference">⤒</button><button id="prev" title="Previous difference" aria-label="Previous difference">↑</button><strong id="position">0 of 0</strong><button id="next" title="Next difference" aria-label="Next difference">↓</button><button id="last" title="Last difference" aria-label="Last difference">⤓</button></div>',
+  );
+
+  output = output.replace(
+    "var prev=document.getElementById('prev');\nvar next=document.getElementById('next');",
+    "var first=document.getElementById('first');\nvar prev=document.getElementById('prev');\nvar next=document.getElementById('next');\nvar last=document.getElementById('last');",
+  );
+
+  output = output.replace(
+    "prev.addEventListener('click',function(){move(-1);});next.addEventListener('click',function(){move(1);});",
+    "first.addEventListener('click',function(){goAbsolute(0);});prev.addEventListener('click',function(){move(-1);});next.addEventListener('click',function(){move(1);});last.addEventListener('click',function(){goAbsolute(Math.max(0,ordered.length-1));});",
+  );
+
+  output = output.replace(
+    "function updateNav(){position.textContent=ordered.length?(current+1)+' of '+ordered.length:'0 of 0';prev.disabled=!ordered.length;next.disabled=!ordered.length;}",
+    "function updateNav(){var empty=!ordered.length;position.textContent=empty?'0 of 0':(current+1)+' of '+ordered.length;first.disabled=empty||current<=0;prev.disabled=empty;next.disabled=empty;last.disabled=empty||current>=ordered.length-1;}",
+  );
+
+  output = output.replace(
+    "function move(delta){if(!ordered.length)return;current=(current+delta+ordered.length)%ordered.length;updateNav();renderAllCode();if(activeView(0)==='tree')revealTree(0,ordered[current].path);if(activeView(1)==='tree')revealTree(1,ordered[current].path);if(activeView(0)==='code'||activeView(1)==='code')scrollToCurrent();}",
+    "function move(delta){if(!ordered.length)return;current=(current+delta+ordered.length)%ordered.length;finishNavMove();}function goAbsolute(index){if(!ordered.length)return;current=Math.min(Math.max(0,index),ordered.length-1);finishNavMove();}function finishNavMove(){updateNav();renderAllCode();if(activeView(0)==='tree')revealTree(0,ordered[current].path);if(activeView(1)==='tree')revealTree(1,ordered[current].path);if(activeView(0)==='code'||activeView(1)==='code')scrollToCurrent();}",
+  );
+
+  output = output.replace(
+    "overlays.forEach(function(o){o.replaceChildren();});prev.disabled=true;next.disabled=true;",
+    "overlays.forEach(function(o){o.replaceChildren();});first.disabled=true;prev.disabled=true;next.disabled=true;last.disabled=true;",
+  );
+
+  output = output.replace(
+    '.nav{display:flex;gap:8px;align-items:center;white-space:nowrap}',
+    '.nav{display:flex;gap:6px;align-items:center;white-space:nowrap}.nav button{width:34px;min-width:34px;height:32px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:17px;line-height:1}.nav strong{min-width:72px;text-align:center}',
+  );
 
   return output;
 }
