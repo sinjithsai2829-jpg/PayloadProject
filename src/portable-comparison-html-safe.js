@@ -12,16 +12,12 @@ export function portableComparisonDownloadName(date = new Date()) {
   return `payloaddiff-${PORTABLE_EXPORT_VERSION}-${stamp}.html`;
 }
 
-// The original self-contained viewer is generated from a large template literal.
-// Some regular-expression backslashes inside that generated runtime can be
-// consumed while the template is evaluated, producing invalid JavaScript in the
-// downloaded HTML. Keep the existing viewer layout, but repair the generated
-// runtime before it is saved and prefill both payloads as a fail-safe.
 export function createPortableComparisonHtml(snapshot) {
   let html = createLegacyPortableComparisonHtml(snapshot);
   html = repairInlineRuntimeEscapes(html);
   html = repairGeneratedRuntimeFunctions(html);
   html = addExportVersionMarker(html);
+  html = prefillPanelNames(html, snapshot);
   html = prefillPayloadTextareas(html, snapshot);
   html = prefillStaticMetadata(html, snapshot);
   html = addRuntimeErrorReporter(html);
@@ -34,9 +30,6 @@ export function repairInlineRuntimeEscapes(html) {
     .join("split('\\n')");
 }
 
-// Remove the two path regexes from the generated browser runtime completely.
-// A tiny scanner is easier to reason about and cannot be corrupted by nested
-// template-literal escaping.
 export function repairGeneratedRuntimeFunctions(html) {
   let output = String(html);
 
@@ -99,6 +92,14 @@ function addExportVersionMarker(html) {
       `<title>PayloadDiff Saved Comparison</title>\n<meta name="payloaddiff-export-version" content="${PORTABLE_EXPORT_VERSION}" />`,
     )
     .replace('<body>', `<body data-payloaddiff-export="${PORTABLE_EXPORT_VERSION}">`);
+}
+
+function prefillPanelNames(html, snapshot) {
+  const names = Array.isArray(snapshot?.ui?.panelNames) ? snapshot.ui.panelNames : ['File 1', 'File 2'];
+  let output = String(html);
+  output = output.replace('<div class="paneHead"><strong>File 1</strong>', `<div class="paneHead"><strong>${escapeHtmlText(names[0] || 'File 1')}</strong>`);
+  output = output.replace('<div class="paneHead"><strong>File 2</strong>', `<div class="paneHead"><strong>${escapeHtmlText(names[1] || 'File 2')}</strong>`);
+  return output;
 }
 
 function prefillPayloadTextareas(html, snapshot) {
