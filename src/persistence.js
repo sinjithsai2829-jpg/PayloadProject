@@ -43,6 +43,7 @@ function installPersistenceListeners() {
 
   document.querySelector('.enhancement-sync input[type="checkbox"]')?.addEventListener('change', () => scheduleSave(0));
   window.addEventListener('payloaddiff:panel-name-changed', () => scheduleSave(0));
+  window.addEventListener('payloaddiff:fold-state-changed', () => scheduleSave(0));
 
   formatBtn?.addEventListener('click', () => saveWhenOperationFinishes(), true);
   compareBtn?.addEventListener('click', () => saveWhenOperationFinishes(), true);
@@ -81,6 +82,7 @@ async function saveNow({ force = false } = {}) {
     chars: record.panes.map((pane) => pane.text.length),
     panelNames: record.panelNames,
     mode: record.mode,
+    foldedRanges: record.foldedRanges,
   });
 }
 
@@ -105,6 +107,8 @@ async function restoreSession() {
     }
 
     requestAnimationFrame(() => {
+      window.PayloadDiffCodeFolding?.setState?.(record.foldedRanges || [[], []], { notify: false });
+
       for (let index = 0; index < panes.length; index += 1) {
         const saved = record.panes?.[index];
         if (!saved) continue;
@@ -126,6 +130,7 @@ async function restoreSession() {
       chars: record.panes?.map((pane) => pane.text?.length || 0) || [],
       panelNames: record.panelNames || ['File 1', 'File 2'],
       mode: record.mode,
+      foldedRanges: record.foldedRanges || [[], []],
       ageMs: Math.max(0, Date.now() - (record.updatedAt || Date.now())),
     });
   } finally {
@@ -140,6 +145,7 @@ function captureState() {
     mode: document.querySelector('.mode-btn.active')?.dataset.mode || 'json',
     panelNames: window.PayloadDiffPanelNames?.get?.() || ['File 1', 'File 2'],
     syncEnabled: document.querySelector('.enhancement-sync input[type="checkbox"]')?.checked ?? true,
+    foldedRanges: window.PayloadDiffCodeFolding?.getState?.() || [[], []],
     panes: editors.map((editor, index) => {
       const scroller = visibleScroller(index) || editor;
       return {
@@ -157,6 +163,7 @@ function stateSignature(record) {
     mode: record.mode,
     panelNames: record.panelNames,
     syncEnabled: record.syncEnabled,
+    foldedRanges: record.foldedRanges,
     panes: record.panes,
   });
 }
@@ -174,7 +181,7 @@ function restoreScrollPositions(record) {
 function visibleScroller(index) {
   const pane = panes[index];
   if (!pane) return null;
-  return [pane.querySelector('.tree-view'), pane.querySelector('.editor')]
+  return [pane.querySelector('.tree-view'), pane.querySelector('.fold-code-view'), pane.querySelector('.editor')]
     .find((element) => element && !element.classList.contains('hidden') && element.offsetParent !== null) || null;
 }
 
