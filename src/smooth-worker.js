@@ -1,5 +1,6 @@
 import { compareJsonValues, attachPrettyJsonLineNumbers } from './fast-engine.js';
-import { comparePayloads, formatPayload } from './core.js';
+import { comparePayloads } from './core.js';
+import { formatJsonBestEffort, formatXmlBestEffort } from './resilient-format.js';
 
 let revision = 0;
 
@@ -14,26 +15,21 @@ self.onmessage = ({ data }) => {
     const invalidSides = [];
 
     if (mode === 'json') {
-      let left;
-      let right;
+      const leftFormatted = formatJsonBestEffort(payload.left);
+      const rightFormatted = formatJsonBestEffort(payload.right);
 
-      try {
-        left = JSON.parse(payload.left);
-      } catch (error) {
-        invalidSides.push({ side: 'left', message: error?.message || 'Invalid JSON' });
+      if (leftFormatted.parsed == null) {
+        invalidSides.push({ side: 'left', message: leftFormatted.warning || 'JSON could not be structurally recovered' });
       }
-
-      try {
-        right = JSON.parse(payload.right);
-      } catch (error) {
-        invalidSides.push({ side: 'right', message: error?.message || 'Invalid JSON' });
+      if (rightFormatted.parsed == null) {
+        invalidSides.push({ side: 'right', message: rightFormatted.warning || 'JSON could not be structurally recovered' });
       }
 
       if (invalidSides.length) {
         self.postMessage({
           id,
           ok: false,
-          error: 'Invalid JSON',
+          error: 'JSON comparison paused',
           invalidSides,
           revision: myRevision,
           elapsedMs: Math.round(performance.now() - started),
@@ -41,6 +37,8 @@ self.onmessage = ({ data }) => {
         return;
       }
 
+      const left = leftFormatted.parsed;
+      const right = rightFormatted.parsed;
       const compared = compareJsonValues(left, right);
       const ordered = attachPrettyJsonLineNumbers(left, right, compared.diffs);
       self.postMessage({
@@ -49,6 +47,7 @@ self.onmessage = ({ data }) => {
         result: {
           ...compared,
           ordered,
+          recovered: leftFormatted.repaired || rightFormatted.repaired,
           revision: myRevision,
           elapsedMs: Math.round(performance.now() - started),
         },
@@ -56,19 +55,20 @@ self.onmessage = ({ data }) => {
       return;
     }
 
-    for (const [side, text] of [['left', payload.left], ['right', payload.right]]) {
-      try {
-        formatPayload({ mode: 'xml', text });
-      } catch (error) {
-        invalidSides.push({ side, message: error?.message || 'Invalid XML' });
-      }
+    const leftFormatted = formatXmlBestEffort(payload.left);
+    const rightFormatted = formatXmlBestEffort(payload.right);
+    if (!leftFormatted.valid) {
+      invalidSides.push({ side: 'left', message: leftFormatted.warning || 'XML could not be structurally recovered' });
+    }
+    if (!rightFormatted.valid) {
+      invalidSides.push({ side: 'right', message: rightFormatted.warning || 'XML could not be structurally recovered' });
     }
 
     if (invalidSides.length) {
       self.postMessage({
         id,
         ok: false,
-        error: 'Invalid XML',
+        error: 'XML comparison paused',
         invalidSides,
         revision: myRevision,
         elapsedMs: Math.round(performance.now() - started),
@@ -76,13 +76,18 @@ self.onmessage = ({ data }) => {
       return;
     }
 
-    const compared = comparePayloads({ mode: 'xml', left: payload.left, right: payload.right });
+    const compared = comparePayloads({
+      mode: 'xml',
+      left: leftFormatted.formatted,
+      right: rightFormatted.formatted,
+    });
     self.postMessage({
       id,
       ok: true,
       result: {
         ...compared,
         ordered: compared.diffs || [],
+        recovered: leftFormatted.repaired || rightFormatted.repaired,
         revision: myRevision,
         elapsedMs: Math.round(performance.now() - started),
       },
