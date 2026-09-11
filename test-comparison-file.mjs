@@ -16,6 +16,7 @@ const snapshot = createComparisonSnapshot({
   right,
   ui: {
     views: ['code', 'tree'],
+    panelNames: ['Production response', 'QA response'],
     syncEnabled: true,
     currentDiffIndex: 7,
     codeScroll: [{ top: 120, left: 4 }, { top: 130, left: 5 }],
@@ -29,6 +30,7 @@ assert.equal(snapshot.payloads.left, left);
 assert.equal(snapshot.payloads.right, right);
 assert.equal(snapshot.ui.currentDiffIndex, 7);
 assert.deepEqual(snapshot.ui.views, ['code', 'tree']);
+assert.deepEqual(snapshot.ui.panelNames, ['Production response', 'QA response']);
 
 const restored = parseComparisonSnapshot(serializeComparisonSnapshot(snapshot));
 assert.equal(restored.payloads.left, left);
@@ -36,6 +38,10 @@ assert.equal(restored.payloads.right, right);
 assert.equal(restored.mode, 'json');
 assert.equal(restored.ui.currentDiffIndex, 7);
 assert.deepEqual(restored.ui.codeScroll[0], { top: 120, left: 4 });
+assert.deepEqual(restored.ui.panelNames, ['Production response', 'QA response']);
+
+const defaults = createComparisonSnapshot({ mode: 'xml', left: '<a/>', right: '<b/>', ui: { panelNames: ['', '   '] } });
+assert.deepEqual(defaults.ui.panelNames, ['File 1', 'File 2']);
 
 assert.throws(() => parseComparisonSnapshot('{"schema":"wrong"}'), /not a PayloadDiff comparison file/i);
 assert.throws(() => parseComparisonSnapshot('{'), /Invalid PayloadDiff comparison file/i);
