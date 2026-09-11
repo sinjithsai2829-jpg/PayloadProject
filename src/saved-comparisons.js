@@ -52,6 +52,12 @@ function activeView(index) {
   return panes[index]?.querySelector('.view-btn[data-view="tree"]')?.classList.contains('active') ? 'tree' : 'code';
 }
 
+function visibleCodeScroller(index) {
+  const folded = panes[index]?.querySelector('.fold-code-view');
+  if (folded && !folded.classList.contains('hidden') && folded.offsetParent !== null) return folded;
+  return editors[index];
+}
+
 function scrollState(element) {
   return { top: element?.scrollTop || 0, left: element?.scrollLeft || 0 };
 }
@@ -62,7 +68,8 @@ function captureUiState() {
     panelNames: window.PayloadDiffPanelNames?.get?.() || ['File 1', 'File 2'],
     syncEnabled: syncInput?.checked ?? true,
     currentDiffIndex: window.PayloadDiffCompareSession?.getCurrentDiffIndex?.() ?? 0,
-    codeScroll: editors.map((editor) => scrollState(editor)),
+    foldedRanges: window.PayloadDiffCodeFolding?.getState?.() || [[], []],
+    codeScroll: [0, 1].map((index) => scrollState(visibleCodeScroller(index))),
     treeScroll: panes.map((pane) => scrollState(pane.querySelector('.tree-view'))),
   };
 }
@@ -99,6 +106,7 @@ function saveComparison() {
       htmlChars: html.length,
       mode: snapshot.mode,
       panelNames: snapshot.ui.panelNames,
+      foldedRanges: snapshot.ui.foldedRanges,
       chars: [snapshot.payloads.left.length, snapshot.payloads.right.length],
       currentDiffIndex: snapshot.ui.currentDiffIndex,
     });
@@ -125,6 +133,7 @@ async function openComparison(event) {
       filename: file.name,
       mode: snapshot.mode,
       panelNames: snapshot.ui.panelNames,
+      foldedRanges: snapshot.ui.foldedRanges,
       chars: [snapshot.payloads.left.length, snapshot.payloads.right.length],
       currentDiffIndex: snapshot.ui.currentDiffIndex,
     });
@@ -159,6 +168,8 @@ async function restoreSnapshot(snapshot) {
   compareBtn?.click();
   await waitForComparison(snapshot.mode);
 
+  window.PayloadDiffCodeFolding?.setState?.(snapshot.ui.foldedRanges || [[], []], { notify: false });
+
   for (let index = 0; index < 2; index += 1) {
     const desired = snapshot.ui.views[index] === 'tree' ? 'tree' : 'code';
     const button = panes[index]?.querySelector(`.view-btn[data-view="${desired}"]`);
@@ -175,9 +186,10 @@ async function restoreSnapshot(snapshot) {
 function restoreScroll(ui) {
   for (let index = 0; index < 2; index += 1) {
     const code = ui.codeScroll[index];
-    if (editors[index] && code) {
-      editors[index].scrollTop = code.top || 0;
-      editors[index].scrollLeft = code.left || 0;
+    const codeScroller = visibleCodeScroller(index);
+    if (codeScroller && code) {
+      codeScroller.scrollTop = code.top || 0;
+      codeScroller.scrollLeft = code.left || 0;
     }
     const tree = panes[index]?.querySelector('.tree-view');
     const treeSaved = ui.treeScroll[index];
