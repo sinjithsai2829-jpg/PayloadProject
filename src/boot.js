@@ -2,6 +2,7 @@ import './main.js';
 import './enhancements.js';
 import './editable-default.js';
 import './sync-scroll.js';
+import './diff-nav-ui.js';
 import './editable-compare.js';
 import './diagnostics.js';
 import './panel-names.js';
