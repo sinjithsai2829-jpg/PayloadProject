@@ -57,9 +57,10 @@ for (let index = 0; index < panes.length; index += 1) {
     const button = event.target.closest('.view-btn');
     if (!button) return;
 
-    // main.js still owns JSON Tree. In XML mode this module owns the same tabs.
+    // main.js still owns JSON Tree. In XML mode this module renders the same
+    // Tree surface, but the event is allowed to continue so sync-scroll.js can
+    // mirror Code/Tree changes to the other pane.
     event.preventDefault();
-    event.stopImmediatePropagation();
     if (button.dataset.view === 'tree') showXmlTree(index);
     else showCode(index);
   }, true);
