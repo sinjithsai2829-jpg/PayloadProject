@@ -7,8 +7,10 @@ const clearBtn = document.querySelector('#clearBtn');
 const compareBar = document.querySelector('#compareBar');
 const compareSummary = document.querySelector('#compareSummary');
 const diffPosition = document.querySelector('#diffPosition');
+const firstDiff = document.querySelector('#firstDiff');
 const prevDiff = document.querySelector('#prevDiff');
 const nextDiff = document.querySelector('#nextDiff');
+const lastDiff = document.querySelector('#lastDiff');
 const statusText = document.querySelector('#statusText');
 
 let compareActive = false;
@@ -35,6 +37,9 @@ window.PayloadDiffCompareSession = {
   getMode: () => activeMode,
   getInvalidSides: () => invalidSides.map((item) => ({ ...item })),
   getCurrentDiffIndex: () => currentDiffIndex,
+  getDiffCount: () => orderedDiffs.length,
+  goToFirst: () => selectAbsoluteDiff(0),
+  goToLast: () => selectAbsoluteDiff(Math.max(0, orderedDiffs.length - 1)),
 };
 
 const worker = new Worker(new URL('./smooth-worker.js', import.meta.url), { type: 'module' });
@@ -188,8 +193,10 @@ editors.forEach((editor) => {
   });
 });
 
+firstDiff?.addEventListener('click', (event) => handleAbsoluteNavigation(event, 'first'), true);
 prevDiff?.addEventListener('click', (event) => handleLiveNavigation(event, -1), true);
 nextDiff?.addEventListener('click', (event) => handleLiveNavigation(event, 1), true);
+lastDiff?.addEventListener('click', (event) => handleAbsoluteNavigation(event, 'last'), true);
 clearBtn?.addEventListener('click', resetLiveCompare);
 document.querySelectorAll('.mode-btn').forEach((button) => button.addEventListener('click', resetLiveCompare));
 window.addEventListener('payloaddiff:comparison-reset', resetLiveCompare);
@@ -201,11 +208,34 @@ for (const pane of panes) {
   }));
 }
 
+function canNavigate() {
+  return compareActive && !invalidSides.length && currentMode() === activeMode && orderedDiffs.length > 0;
+}
+
 function handleLiveNavigation(event, delta) {
-  if (!compareActive || invalidSides.length || currentMode() !== activeMode || !orderedDiffs.length) return;
+  if (!canNavigate()) return;
   event.preventDefault();
   event.stopImmediatePropagation();
   currentDiffIndex = (currentDiffIndex + delta + orderedDiffs.length) % orderedDiffs.length;
+  finishNavigation();
+}
+
+function handleAbsoluteNavigation(event, target) {
+  if (!canNavigate()) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  selectAbsoluteDiff(target === 'last' ? orderedDiffs.length - 1 : 0);
+}
+
+function selectAbsoluteDiff(index) {
+  if (!canNavigate()) return false;
+  const nextIndex = Math.min(Math.max(0, Number(index) || 0), orderedDiffs.length - 1);
+  currentDiffIndex = nextIndex;
+  finishNavigation();
+  return true;
+}
+
+function finishNavigation() {
   updateNavigator();
   publishCoreComparisonState();
   scrollToCurrentDiff();
@@ -279,15 +309,20 @@ function restoreLastGoodSummary() {
 
 function updateNavigator() {
   const total = orderedDiffs.length;
+  const blocked = total === 0 || invalidSides.length > 0;
   if (diffPosition) diffPosition.textContent = total ? `${currentDiffIndex + 1} of ${total}` : '0 of 0';
-  if (prevDiff) prevDiff.disabled = total === 0 || invalidSides.length > 0;
-  if (nextDiff) nextDiff.disabled = total === 0 || invalidSides.length > 0;
+  if (firstDiff) firstDiff.disabled = blocked || currentDiffIndex <= 0;
+  if (prevDiff) prevDiff.disabled = blocked;
+  if (nextDiff) nextDiff.disabled = blocked;
+  if (lastDiff) lastDiff.disabled = blocked || currentDiffIndex >= total - 1;
 }
 
 function disableNavigatorForEditing(label) {
   if (diffPosition) diffPosition.textContent = label;
+  if (firstDiff) firstDiff.disabled = true;
   if (prevDiff) prevDiff.disabled = true;
   if (nextDiff) nextDiff.disabled = true;
+  if (lastDiff) lastDiff.disabled = true;
 }
 
 function scheduleNavigatorFromScroll(index) {
@@ -497,6 +532,8 @@ function resetLiveCompare() {
   clearInvalidPaneMarkers();
   compareBar?.classList.remove('live-stale', 'live-invalid');
   if (diffPosition) diffPosition.textContent = '0 of 0';
+  if (firstDiff) firstDiff.disabled = true;
   if (prevDiff) prevDiff.disabled = true;
   if (nextDiff) nextDiff.disabled = true;
+  if (lastDiff) lastDiff.disabled = true;
 }
