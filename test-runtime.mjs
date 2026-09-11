@@ -9,6 +9,7 @@ const sync = await readFile(new URL('./src/sync-scroll.js', import.meta.url), 'u
 const persistence = await readFile(new URL('./src/persistence.js', import.meta.url), 'utf8');
 const editableCode = await readFile(new URL('./src/editable-code-surface.js', import.meta.url), 'utf8');
 const enhancements = await readFile(new URL('./src/enhancements.js', import.meta.url), 'utf8');
+const scrollbarVisibility = await readFile(new URL('./src/scrollbar-visibility.js', import.meta.url), 'utf8');
 
 // Regression: do not load the retired duplicate code-diff runtime.
 assert.ok(boot.includes("./editable-compare.js"));
@@ -61,6 +62,12 @@ assert.ok(sync.includes('Sync views & scroll'));
 assert.ok(sync.includes("classList.contains('editor')"));
 assert.ok(!sync.includes('virtual-code'));
 assert.ok(!sync.includes('enhancement-edit'));
+
+// Both panes must keep their own visible scrollbar even when synchronized
+// scrolling is enabled. Sync controls movement, never scrollbar visibility.
+assert.ok(scrollbarVisibility.includes('Both panes always keep a visible scrollbar'));
+assert.ok(!scrollbarVisibility.includes('scrollbar-width: none'));
+assert.ok(!scrollbarVisibility.includes('::-webkit-scrollbar {\n    width: 0'));
 
 // Large view is intentionally removed. Enhancements keeps only tree search and
 // synchronized tree navigation; it must not create/toggle a virtual Code view.
