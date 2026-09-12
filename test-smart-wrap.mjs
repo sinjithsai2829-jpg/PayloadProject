@@ -10,6 +10,7 @@ import {
 const boot = await fs.readFile(new URL('./src/boot.js', import.meta.url), 'utf8');
 const view = await fs.readFile(new URL('./src/smart-wrap-view.js', import.meta.url), 'utf8');
 const bridge = await fs.readFile(new URL('./src/smart-wrap-scroll-bridge.js', import.meta.url), 'utf8');
+const guard = await fs.readFile(new URL('./src/smart-wrap-scroll-guard.js', import.meta.url), 'utf8');
 
 assert.equal(SMART_WRAP_MAX_COLUMNS, 120);
 
@@ -41,6 +42,7 @@ assert.ok(noLoss.every((segment) => segment.end > segment.start));
 
 assert.ok(boot.includes("import './smart-wrap-view.js'"));
 assert.ok(boot.includes("import './smart-wrap-scroll-bridge.js'"));
+assert.ok(boot.includes("import './smart-wrap-scroll-guard.js'"));
 assert.ok(view.includes("surface.className = 'smart-wrap-view hidden'"));
 assert.ok(view.includes("continuationStrategy: 'hanging-indent'"));
 assert.ok(view.includes('SMART_WRAP_MAX_COLUMNS'));
@@ -49,9 +51,14 @@ assert.ok(view.includes('Double-click') || view.includes('beginSourceEdit'));
 assert.ok(view.includes('aligned-compare-text'));
 assert.ok(bridge.includes('syncFromEditor'));
 assert.ok(bridge.includes('syncFromSmart'));
+assert.ok(bridge.includes('PayloadDiffSmartWrapScrollBridge'));
+assert.ok(bridge.includes("beginBridge(index, 'smart-to-editor')"));
+assert.ok(guard.includes('isSyncingFromSmart'));
+assert.ok(guard.includes('stopImmediatePropagation'));
+assert.ok(guard.includes('capture: true'));
 
-// Shared renderer: Smart Wrap behavior must never diverge by payload mode.
-for (const source of [view, bridge]) {
+// Shared renderer and scroll fix: behavior must never diverge by payload mode.
+for (const source of [view, bridge, guard]) {
   assert.ok(!source.includes("mode === 'json'"));
   assert.ok(!source.includes("mode === 'xml'"));
 }
