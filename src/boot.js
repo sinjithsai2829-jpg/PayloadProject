@@ -19,4 +19,5 @@ import './editable-code-surface.js';
 import './scrollbar-visibility.js';
 import './saved-comparisons.js';
 import './editor-syntax-markers.js';
+import './text-fallback-ui.js';
 import './xml-tree-ui.js';
