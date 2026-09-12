@@ -1,4 +1,5 @@
 import './main.js';
+import './huge-select-all-guard.js';
 import './ui-labels.js';
 import './theme-toggle.js';
 import './view-surface-coordinator.js';
