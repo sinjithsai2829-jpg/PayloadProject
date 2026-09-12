@@ -24,6 +24,7 @@ import './inline-diff-highlights.js';
 import './code-folding.js';
 import './tree-diff-navigation.js';
 import './diagnostics.js';
+import './diagnostics-trace.js';
 import './panel-names.js';
 import './persistence.js';
 import './diff-visibility.js';

@@ -25,20 +25,10 @@ export function detectActionPayloadMode(payloads, options = {}) {
   const modes = [...new Set(confident.map((detection) => detection.mode))];
 
   if (modes.length > 1) {
-    return {
-      mode: null,
-      conflict: true,
-      detections,
-      confident,
-    };
+    return { mode: null, conflict: true, detections, confident };
   }
 
-  return {
-    mode: modes[0] || null,
-    conflict: false,
-    detections,
-    confident,
-  };
+  return { mode: modes[0] || null, conflict: false, detections, confident };
 }
 
 export function installPayloadActionModeGuard(root = document) {
@@ -55,10 +45,7 @@ export function installPayloadActionModeGuard(root = document) {
   function preflight(event) {
     const action = event.currentTarget === compareButton ? 'compare' : 'format';
     const payloads = editors
-      .map((editor, paneIndex) => ({
-        paneIndex,
-        text: editor?.value || '',
-      }))
+      .map((editor, paneIndex) => ({ paneIndex, text: editor?.value || '' }))
       .filter((payload) => payload.text.trim());
 
     if (!payloads.length) return;
@@ -69,7 +56,6 @@ export function installPayloadActionModeGuard(root = document) {
     if (result.conflict) {
       event.preventDefault();
       event.stopImmediatePropagation();
-
       const conflictText = result.confident
         .map((detection) => `File ${detection.paneIndex + 1} is ${detection.mode.toUpperCase()}`)
         .join(' while ');
@@ -106,8 +92,20 @@ export function installPayloadActionModeGuard(root = document) {
 
     const switched = window.PayloadDiffAutoDetect?.switchMode?.(result.mode)
       ?? fallbackSwitchMode(root, result.mode);
-    if (!switched || activeMode(root) !== result.mode) return;
+    if (!switched || activeMode(root) !== result.mode) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setStatus(statusText, `Detected ${result.mode.toUpperCase()}, but the mode switch could not be completed.`, true);
+      logDiagnostic('error', 'payload.action-mode-switch-failed', {
+        action,
+        beforeMode,
+        detectedMode: result.mode,
+        detections: diagnosticDetections(result.detections),
+      });
+      return;
+    }
 
+    setStatus(statusText, `${result.mode.toUpperCase()} detected. ${action === 'compare' ? 'Comparing' : 'Formatting'} as ${result.mode.toUpperCase()}…`, false);
     logDiagnostic('info', 'payload.action-mode-detected', {
       action,
       beforeMode,
@@ -144,11 +142,7 @@ function setStatus(element, text, isError) {
 }
 
 function logDiagnostic(level, type, data) {
-  try {
-    window.PayloadDiffDiagnostics?.log?.(level, type, data);
-  } catch (_) {}
+  try { window.PayloadDiffDiagnostics?.log?.(level, type, data); } catch (_) {}
 }
 
-if (typeof document !== 'undefined') {
-  installPayloadActionModeGuard(document);
-}
+if (typeof document !== 'undefined') installPayloadActionModeGuard(document);

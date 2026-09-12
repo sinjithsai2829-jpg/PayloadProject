@@ -51,14 +51,13 @@ assert.ok(view.includes('Double-click') || view.includes('beginSourceEdit'));
 assert.ok(view.includes('aligned-compare-text'));
 assert.ok(bridge.includes('syncFromEditor'));
 assert.ok(bridge.includes('syncFromSmart'));
-assert.ok(bridge.includes("directions[index] = 'smart-to-editor'") || bridge.includes("beginBridge(index, 'smart-to-editor')"));
 assert.ok(bridge.includes('PayloadDiffSmartWrapScrollBridge'));
+assert.ok(bridge.includes("beginBridge(index, 'smart-to-editor')"));
 assert.ok(guard.includes('isSyncingFromSmart'));
 assert.ok(guard.includes('stopImmediatePropagation'));
 assert.ok(guard.includes('capture: true'));
 
-// Shared renderer and scroll fix: Smart Wrap behavior must never diverge by
-// payload mode, so the same regression fix covers both JSON and XML.
+// Shared renderer and scroll fix: behavior must never diverge by payload mode.
 for (const source of [view, bridge, guard]) {
   assert.ok(!source.includes("mode === 'json'"));
   assert.ok(!source.includes("mode === 'xml'"));

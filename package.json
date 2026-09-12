@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node server.mjs",
-    "test": "node test.mjs && node test-runtime.mjs && node test-diagnostics.mjs && node test-diff-navigation.mjs && node test-comparison-file.mjs && node test-portable-comparison-html.mjs && node test-input-normalization.mjs && node test-resilient-format.mjs && node test-syntax-issues.mjs && node test-xml-tree.mjs && node test-code-folding.mjs && node test-payload-detection.mjs && node test-payload-action-mode-guard.mjs && node test-paste-download-ui.mjs && node test-theme-toggle.mjs && node test-text-fallback-diff.mjs && node test-user-journeys.mjs && node test-word-wrap.mjs && node test-smart-wrap.mjs && node test-wrap-indent-guides.mjs && node test-aligned-comparison.mjs && node test-compare-options.mjs && node test-scrollbar-theme.mjs && node test-compare-fidelity.mjs",
+    "test": "node test.mjs && node test-runtime.mjs && node test-diagnostics.mjs && node test-diagnostics-trace.mjs && node test-diff-navigation.mjs && node test-comparison-file.mjs && node test-portable-comparison-html.mjs && node test-input-normalization.mjs && node test-resilient-format.mjs && node test-syntax-issues.mjs && node test-xml-tree.mjs && node test-code-folding.mjs && node test-payload-detection.mjs && node test-payload-action-mode-guard.mjs && node test-paste-download-ui.mjs && node test-theme-toggle.mjs && node test-text-fallback-diff.mjs && node test-user-journeys.mjs && node test-word-wrap.mjs && node test-smart-wrap.mjs && node test-wrap-indent-guides.mjs && node test-aligned-comparison.mjs && node test-compare-options.mjs && node test-scrollbar-theme.mjs && node test-compare-fidelity.mjs",
     "build": "node build.mjs"
   }
 }

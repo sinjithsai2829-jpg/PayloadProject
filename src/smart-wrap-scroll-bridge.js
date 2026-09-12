@@ -56,11 +56,10 @@ function syncFromSmart(index) {
   const editorMax = Math.max(0, editor.scrollHeight - editor.clientHeight);
   beginBridge(index, 'smart-to-editor');
 
-  // Keep the underlying textarea near the same proportional position so
-  // turning Wrap off does not jump somewhere unrelated. Smart Wrap remains the
-  // authoritative visible scroller; smart-wrap-view explicitly ignores this
-  // bridge-originated textarea scroll event so it cannot feed back and snap the
-  // user to a logical-line boundary or the end of a huge wrapped line.
+  // Smart Wrap is the authoritative visible scroller. Mirror only the
+  // proportional position into the hidden textarea so turning Wrap off and the
+  // persistent scrollbar remain aligned. The guard blocks this mirrored native
+  // scroll from being interpreted as a new logical-line navigation request.
   editor.scrollTop = editorMax * clampRatio(surface.scrollTop / smartMax);
   releaseBridge(index);
 }

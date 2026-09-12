@@ -4,11 +4,11 @@ for (let index = 0; index < editors.length; index += 1) {
   const editor = editors[index];
   if (!editor) continue;
 
-  // The Smart Wrap bridge mirrors its visible surface into the hidden textarea
-  // so the persistent scrollbar and wrap-off position stay proportional. That
-  // mirrored textarea scroll must not be interpreted as a new navigation
-  // request by Smart Wrap itself, or the view snaps to a logical-line boundary
-  // (and huge one-line payloads can snap straight back to the end).
+  // Smart Wrap mirrors its visible scroll position into the hidden textarea.
+  // That mirrored scroll is bookkeeping, not a navigation request. Stop it
+  // before Smart Wrap's textarea scroll listener can convert the textarea's
+  // large wrapped pixel offset into a logical line and snap the visible surface
+  // back to the end of a huge line.
   editor.addEventListener('scroll', (event) => {
     if (!window.PayloadDiffSmartWrap?.isActive?.(index)) return;
     if (!window.PayloadDiffSmartWrapScrollBridge?.isSyncingFromSmart?.(index)) return;
