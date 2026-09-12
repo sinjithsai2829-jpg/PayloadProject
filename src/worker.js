@@ -3,6 +3,7 @@ import { searchJsonTree } from './search.js';
 import { formatJsonBestEffort, formatXmlBestEffort } from './resilient-format.js';
 import { detectPayloadIssues } from './syntax-issues.js';
 import { compareTextPayloads } from './text-fallback-diff.js';
+import { compareFormattedXml } from './xml-compare.js';
 
 const jsonCache = new Map();
 
@@ -69,7 +70,7 @@ function compareWithRecovery(payload) {
       });
     }
     return {
-      ...comparePayloads({ mode: 'xml', left: left.formatted, right: right.formatted }),
+      ...compareFormattedXml(left.formatted, right.formatted),
       comparisonKind: 'structural',
       fallback: false,
     };
