@@ -1,8 +1,9 @@
 import { compareJsonValues, attachPrettyJsonLineNumbers } from './fast-engine.js';
-import { formatJsonBestEffort, formatXmlBestEffort } from './resilient-format.js';
+import { formatJsonBestEffort, formatXmlBestEffort, recoverJsonForFormatting } from './resilient-format.js';
 import { compareTextPayloads } from './text-fallback-diff.js';
 import { compareFormattedXml } from './xml-compare.js';
 import { annotateMovedLineDiffs, normalizeCompareOptions } from './compare-normalization.js';
+import { jsonComparisonFidelityIssue } from './compare-fidelity.js';
 
 let revision = 0;
 
@@ -18,6 +19,32 @@ self.onmessage = ({ data }) => {
     const invalidSides = [];
 
     if (mode === 'json') {
+      const recoveredLeft = recoverJsonForFormatting(payload.left).text;
+      const recoveredRight = recoverJsonForFormatting(payload.right).text;
+      const fidelityIssue = jsonComparisonFidelityIssue(recoveredLeft, recoveredRight);
+      if (fidelityIssue) {
+        const fallback = compareTextPayloads({
+          mode,
+          left: payload.left,
+          right: payload.right,
+          reason: fidelityIssue.reason,
+          options,
+        });
+        self.postMessage({
+          id,
+          ok: true,
+          result: {
+            ...fallback,
+            fidelityIssue,
+            structuralIssues: [],
+            recovered: false,
+            revision: myRevision,
+            elapsedMs: Math.round(performance.now() - started),
+          },
+        });
+        return;
+      }
+
       const leftFormatted = formatJsonBestEffort(payload.left);
       const rightFormatted = formatJsonBestEffort(payload.right);
 
@@ -28,8 +55,8 @@ self.onmessage = ({ data }) => {
         const reason = invalidSides.map((item) => `${item.side === 'left' ? 'File 1' : 'File 2'}: ${item.message}`).join(' · ');
         const fallback = compareTextPayloads({
           mode,
-          left: leftFormatted.formatted,
-          right: rightFormatted.formatted,
+          left: payload.left,
+          right: payload.right,
           reason,
           options,
         });
@@ -83,8 +110,8 @@ self.onmessage = ({ data }) => {
       const reason = invalidSides.map((item) => `${item.side === 'left' ? 'File 1' : 'File 2'}: ${item.message}`).join(' · ');
       const fallback = compareTextPayloads({
         mode,
-        left: leftFormatted.formatted,
-        right: rightFormatted.formatted,
+        left: payload.left,
+        right: payload.right,
         reason,
         options,
       });
