@@ -12,6 +12,7 @@ import './compare-options-ui.js';
 import './compare-options-worker-bridge.js';
 import './editable-compare.js';
 import './aligned-compare-view.js';
+import './compare-options-enhancements.js';
 import './aligned-compare-surface-guard.js';
 import './compare-surface-guard.js';
 import './inline-diff-highlights.js';
