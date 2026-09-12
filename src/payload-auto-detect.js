@@ -70,11 +70,13 @@ function detectAndApply(text, options = {}) {
   if (!detected.mode) return detected;
 
   const current = activeMode();
+  const replacementSource = options.source === 'upload' || options.source === 'paste-button';
   const confident = detected.confidence >= 0.8;
-  const uploadHint = options.source === 'upload' && detected.confidence >= 0.6;
-  if (!confident && !uploadHint) return detected;
+  const sourceHint = replacementSource && detected.confidence >= 0.6;
+  if (!confident && !sourceHint) return detected;
 
-  if (manualOverrideUntilEmpty && options.source !== 'upload') return detected;
+  if (manualOverrideUntilEmpty && !replacementSource) return detected;
+  if (replacementSource) manualOverrideUntilEmpty = false;
   if (detected.mode === current) return detected;
 
   const button = modeButtons.find((candidate) => candidate.dataset.mode === detected.mode);
