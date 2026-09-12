@@ -74,11 +74,22 @@ assert.ok(!xmlTreeUi.includes('stopImmediatePropagation'));
 assert.ok(xmlTreeWorker.includes('parseXmlTree'));
 assert.ok(xmlTreeWorker.includes('searchXmlTree'));
 
-// Tree search is shared between formats. Only parsing/search semantics differ.
+// Panel search respects the currently active surface. Code search performs a
+// text search and selects the match without clicking Tree; Tree search uses the
+// structural worker only when Tree is already active. This behavior is shared
+// by JSON and XML.
+assert.ok(enhancements.includes('activeSearchSurface(index)'));
+assert.ok(enhancements.includes("surface === 'code'"));
+assert.ok(enhancements.includes('searchCode(text, query, SEARCH_LIMIT)'));
+assert.ok(enhancements.includes('revealCodeMatch(index'));
+assert.ok(enhancements.includes('revealTreePath(index'));
+assert.ok(enhancements.includes('Search ${mode} Tree'));
+assert.ok(enhancements.includes('Search ${mode} Code'));
 assert.ok(enhancements.includes("searchWorker.postMessage({ id, mode, text, query"));
-assert.ok(enhancements.includes('Search XML element, attribute, path, or value'));
-assert.ok(enhancements.includes("node.classList.remove('hidden')"));
-assert.ok(!enhancements.includes("classList.toggle('hidden', !json)"));
+assert.ok(enhancements.includes("if (activeSearchSurface(index) !== 'tree') return"));
+assert.ok(enhancements.includes("if (activeSearchSurface(other) !== 'tree') return"));
+assert.ok(!enhancements.includes("treeTab.click()"));
+assert.ok(!enhancements.includes("otherTreeTab.click()"));
 assert.ok(treeSearchWorker.includes("mode === 'xml'"));
 assert.ok(treeSearchWorker.includes('searchXmlTree'));
 assert.ok(treeSearchWorker.includes('searchJsonTree'));
