@@ -53,6 +53,7 @@ window.PayloadDiffCompareSession = {
   } : null,
   goToFirst: () => selectAbsoluteDiff(0),
   goToLast: () => selectAbsoluteDiff(Math.max(0, orderedDiffs.length - 1)),
+  goToIndex: (index) => selectAbsoluteDiff(index),
 };
 
 const worker = new Worker(new URL('./smooth-worker.js', import.meta.url), { type: 'module' });
@@ -251,7 +252,7 @@ function selectAbsoluteDiff(index) {
 function finishNavigation() {
   updateNavigator();
   publishCoreComparisonState();
-  scrollToCurrentDiff();
+  if (!window.PayloadDiffAlignedCompare?.revealDiff?.(currentDiffIndex)) scrollToCurrentDiff();
 }
 
 async function refreshLiveComparison({ preserveNavigator }) {
@@ -438,6 +439,11 @@ function scrollEditorToLine(index, line) {
   if (!line) return;
   const editor = editors[index];
   if (!isVisible(editor)) return;
+  const wrapped = !!window.PayloadDiffWordWrap?.isEnabled?.(index);
+  if (wrapped) {
+    editor.scrollTop = window.PayloadDiffWordWrap?.scrollTopForLine?.(index, line, .42) || 0;
+    return;
+  }
   const computed = getComputedStyle(editor);
   const lineHeight = parseFloat(computed.lineHeight) || 20;
   const paddingTop = parseFloat(computed.paddingTop) || 0;
@@ -464,6 +470,11 @@ function renderOverlay(index) {
   const editor = editors[index];
   const overlay = overlays[index];
   if (!editor || !overlay) return;
+  if (window.PayloadDiffAlignedCompare?.isActive?.()) {
+    overlay.classList.add('hidden');
+    overlay.replaceChildren();
+    return;
+  }
   const visible = compareActive && !invalidSides.length && currentMode() === activeMode && isVisible(editor);
   overlay.classList.toggle('hidden', !visible);
   if (!visible) {
@@ -474,8 +485,12 @@ function renderOverlay(index) {
   const computed = getComputedStyle(editor);
   const lineHeight = parseFloat(computed.lineHeight) || 20;
   const paddingTop = parseFloat(computed.paddingTop) || 0;
-  const firstLine = Math.max(1, Math.floor((editor.scrollTop - paddingTop) / lineHeight) + 1);
-  const lastLine = Math.ceil((editor.scrollTop + editor.clientHeight - paddingTop) / lineHeight) + 1;
+  const wrapped = !!window.PayloadDiffWordWrap?.isEnabled?.(index);
+  const range = wrapped
+    ? window.PayloadDiffWordWrap?.getVisibleLineRange?.(index, 2)
+    : null;
+  const firstLine = range?.first || Math.max(1, Math.floor((editor.scrollTop - paddingTop) / lineHeight) + 1);
+  const lastLine = range?.last || Math.ceil((editor.scrollTop + editor.clientHeight - paddingTop) / lineHeight) + 1;
   const fragment = document.createDocumentFragment();
 
   for (const item of diffsByPane[index]) {
@@ -483,8 +498,14 @@ function renderOverlay(index) {
     if (item.line > lastLine + 1) break;
     const band = document.createElement('div');
     band.className = `editor-diff-band ${item.type}${item.index === currentDiffIndex ? ' current' : ''}`;
-    band.style.top = `${paddingTop + (item.line - 1) * lineHeight - editor.scrollTop}px`;
-    band.style.height = `${lineHeight}px`;
+    if (wrapped) {
+      const metrics = window.PayloadDiffWordWrap?.getLineMetrics?.(index, item.line);
+      band.style.top = `${(metrics?.top || 0) - editor.scrollTop}px`;
+      band.style.height = `${metrics?.height || lineHeight}px`;
+    } else {
+      band.style.top = `${paddingTop + (item.line - 1) * lineHeight - editor.scrollTop}px`;
+      band.style.height = `${lineHeight}px`;
+    }
     fragment.appendChild(band);
   }
   overlay.replaceChildren(fragment);
