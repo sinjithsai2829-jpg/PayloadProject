@@ -30,8 +30,6 @@ window.addEventListener('payloaddiff:syntax-issues-updated', () => {
     return;
   }
 
-  // Give the live worker a frame to publish its result. This also covers the
-  // identical-invalid case where there are zero $text diff events.
   requestAnimationFrame(() => {
     if (!comparisonVisible() || totalSyntaxIssues() === 0) return;
     fallbackActive = true;
@@ -43,15 +41,19 @@ window.addEventListener('payloaddiff:syntax-issues-updated', () => {
 
 compareBtn?.addEventListener('click', () => {
   fallbackActive = false;
-  // Initial compare and live compare are asynchronous workers. Re-check after
-  // both have had time to publish state, without blocking the UI.
-  window.setTimeout(() => {
-    if (!comparisonVisible() || totalSyntaxIssues() === 0) return;
-    fallbackActive = true;
-    lastMode = currentMode();
-    forceCodeViews();
-    setFallbackStatus();
-  }, 120);
+  // Validate independently of structural comparison so even two identical
+  // malformed payloads are recognized as text-fallback mode.
+  Promise.resolve(window.PayloadDiffSyntaxIssues?.refresh?.()).catch(() => {});
+
+  for (const delay of [120, 450]) {
+    window.setTimeout(() => {
+      if (!comparisonVisible() || totalSyntaxIssues() === 0) return;
+      fallbackActive = true;
+      lastMode = currentMode();
+      forceCodeViews();
+      setFallbackStatus();
+    }, delay);
+  }
 }, true);
 
 for (const pane of panes) {
