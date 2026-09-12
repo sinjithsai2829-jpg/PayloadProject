@@ -18,9 +18,6 @@ function installPaneCoordinator(index) {
     const treeActive = !!treeButton?.classList.contains('active');
     const codeActive = !!codeButton?.classList.contains('active');
 
-    // Tree wins if a transient async switch ever leaves both buttons active.
-    // This prevents Code overlays from painting on top of a Tree that has just
-    // finished building in a worker.
     wrap.classList.toggle('tree-surface-active', treeActive);
     wrap.classList.toggle('code-surface-active', !treeActive && codeActive);
     pane.dataset.activeView = treeActive ? 'tree' : 'code';
@@ -30,10 +27,6 @@ function installPaneCoordinator(index) {
     }));
   };
 
-  // main.js can finish a JSON Tree switch asynchronously after formatting, and
-  // xml-tree-ui.js can finish an XML Tree build asynchronously after parsing.
-  // Observe the actual tab state rather than assuming the click completed the
-  // view change synchronously.
   const observer = new MutationObserver((mutations) => {
     if (!mutations.some((mutation) => mutation.type === 'attributes' && mutation.attributeName === 'class')) return;
     syncSurface();
@@ -45,9 +38,6 @@ function installPaneCoordinator(index) {
 
   tabs.addEventListener('click', () => {
     requestAnimationFrame(syncSurface);
-    // A worker-backed Tree build may complete after the first frame. The
-    // MutationObserver is the primary protection; these delayed checks also
-    // cover code that replaces button classes rather than mutating them.
     setTimeout(syncSurface, 0);
   });
 
@@ -63,8 +53,6 @@ function installStyles() {
   const style = document.createElement('style');
   style.id = 'view-surface-coordinator-styles';
   style.textContent = `
-    /* Tree owns the editor viewport completely. Code-only surfaces must never
-       leak through after an asynchronous Tree build or synchronized tab move. */
     .editor-wrap.tree-surface-active > .editor,
     .editor-wrap.tree-surface-active > .fold-code-view,
     .editor-wrap.tree-surface-active > .code-fold-gutter,
@@ -73,7 +61,8 @@ function installStyles() {
     .editor-wrap.tree-surface-active > .editor-diff-overlay,
     .editor-wrap.tree-surface-active > .inline-diff-layer,
     .editor-wrap.tree-surface-active > .syntax-line-layer,
-    .editor-wrap.tree-surface-active > .syntax-error-rail {
+    .editor-wrap.tree-surface-active > .syntax-error-rail,
+    .editor-wrap.tree-surface-active > .aligned-compare-view {
       display: none !important;
       visibility: hidden !important;
       pointer-events: none !important;
@@ -86,8 +75,6 @@ function installStyles() {
       height: 100%;
     }
 
-    /* Code owns the viewport when Code is selected. This prevents a stale Tree
-       from remaining visible while a Code overlay/editor is being restored. */
     .editor-wrap.code-surface-active > .tree-view {
       display: none !important;
       visibility: hidden !important;
