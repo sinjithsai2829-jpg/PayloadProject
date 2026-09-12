@@ -130,12 +130,19 @@ function normalizeUi(ui) {
     theme: ui.theme === 'light' ? 'light' : 'dark',
     panelNames: normalizePanelNames(ui.panelNames),
     syncEnabled: ui.syncEnabled !== false,
+    wordWrap: normalizeBooleanPair(ui.wordWrap),
     currentDiffIndex: Number.isInteger(ui.currentDiffIndex) && ui.currentDiffIndex >= 0 ? ui.currentDiffIndex : 0,
     selectedLines: normalizeSelectedLines(ui.selectedLines),
     foldedRanges: normalizeFoldedRanges(ui.foldedRanges),
     codeScroll: normalizeScrollPair(ui.codeScroll),
     treeScroll: normalizeScrollPair(ui.treeScroll),
   };
+}
+
+function normalizeBooleanPair(value) {
+  const pair = Array.isArray(value) ? value.slice(0, 2) : [];
+  while (pair.length < 2) pair.push(false);
+  return pair.map(Boolean);
 }
 
 function normalizePanelNames(value) {
