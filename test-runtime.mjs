@@ -16,8 +16,10 @@ const scrollbarVisibility = await readFile(new URL('./src/scrollbar-visibility.j
 const xmlTreeUi = await readFile(new URL('./src/xml-tree-ui.js', import.meta.url), 'utf8');
 const xmlTreeWorker = await readFile(new URL('./src/xml-tree-worker.js', import.meta.url), 'utf8');
 const treeSearchWorker = await readFile(new URL('./src/tree-search-worker.js', import.meta.url), 'utf8');
+const viewSurface = await readFile(new URL('./src/view-surface-coordinator.js', import.meta.url), 'utf8');
 
 // Canonical runtime modules.
+assert.ok(boot.includes("./view-surface-coordinator.js"));
 assert.ok(boot.includes("./editable-compare.js"));
 assert.ok(boot.includes("./inline-diff-highlights.js"));
 assert.ok(boot.includes("./code-folding.js"));
@@ -27,6 +29,24 @@ assert.ok(boot.includes("./persistence.js"));
 assert.ok(boot.includes("./editable-code-surface.js"));
 assert.ok(boot.includes("./xml-tree-ui.js"));
 assert.ok(!boot.includes("./diff-display.js"));
+
+// Code and Tree are exclusive visual surfaces. This coordinator observes the
+// actual tab activation state, so an async JSON/XML Tree build cannot finish
+// after a click and leave Code gutters/folding/diff/syntax layers above Tree.
+assert.ok(viewSurface.includes('MutationObserver'));
+assert.ok(viewSurface.includes('tree-surface-active'));
+assert.ok(viewSurface.includes('code-surface-active'));
+assert.ok(viewSurface.includes('> .fold-code-view'));
+assert.ok(viewSurface.includes('> .code-fold-gutter'));
+assert.ok(viewSurface.includes('> .editor-line-gutter'));
+assert.ok(viewSurface.includes('> .editor-indent-guides'));
+assert.ok(viewSurface.includes('> .editor-diff-overlay'));
+assert.ok(viewSurface.includes('> .inline-diff-layer'));
+assert.ok(viewSurface.includes('> .syntax-line-layer'));
+assert.ok(viewSurface.includes('> .syntax-error-rail'));
+assert.ok(viewSurface.includes('> .tree-view'));
+assert.ok(!viewSurface.includes("mode === 'json'"));
+assert.ok(!viewSurface.includes("mode === 'xml'"));
 
 // Shared Code folding is available to JSON and XML. JSON detects object/array
 // line ranges, XML detects element ranges, while projection/rendering and
