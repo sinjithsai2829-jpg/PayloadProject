@@ -1,7 +1,8 @@
 export const COMPARISON_FILE_SCHEMA = 'payloaddiff.comparison';
 export const COMPARISON_FILE_VERSION = 1;
+const MAX_SAVED_DIFFS = 20000;
 
-export function createComparisonSnapshot({ mode, left, right, ui = {} }) {
+export function createComparisonSnapshot({ mode, left, right, ui = {}, comparison = null }) {
   if (mode !== 'json' && mode !== 'xml') throw new Error('Comparison mode must be JSON or XML.');
   if (typeof left !== 'string' || typeof right !== 'string' || !left.trim() || !right.trim()) {
     throw new Error('Both payloads are required to save a comparison.');
@@ -14,6 +15,7 @@ export function createComparisonSnapshot({ mode, left, right, ui = {} }) {
     mode,
     payloads: { left, right },
     ui: normalizeUi(ui),
+    comparison: normalizeComparison(comparison, mode),
   };
 }
 
@@ -33,6 +35,7 @@ export function parseComparisonSnapshot(text) {
   return {
     ...parsed,
     ui: normalizeUi(parsed.ui || {}),
+    comparison: normalizeComparison(parsed.comparison, parsed.mode),
   };
 }
 
@@ -61,6 +64,61 @@ export function validateComparisonSnapshot(snapshot) {
 export function comparisonDownloadName(date = new Date()) {
   const stamp = date.toISOString().replace(/[:.]/g, '-');
   return `payloaddiff-comparison-${stamp}.payloaddiff`;
+}
+
+function normalizeComparison(value, mode) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+  const rawDiffs = Array.isArray(value.diffs)
+    ? value.diffs
+    : Array.isArray(value.ordered)
+      ? value.ordered
+      : [];
+  const diffs = [];
+  for (const raw of rawDiffs.slice(0, MAX_SAVED_DIFFS)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const type = raw.type === 'added' || raw.type === 'removed' ? raw.type : 'modified';
+    const leftLine = positiveIntegerOrNull(raw.leftLine);
+    const rightLine = positiveIntegerOrNull(raw.rightLine);
+    diffs.push({
+      path: typeof raw.path === 'string' ? raw.path.slice(0, 2048) : `$saved[${diffs.length}]`,
+      type,
+      leftLine,
+      rightLine,
+    });
+  }
+
+  const counted = countDiffTypes(diffs);
+  const sourceSummary = value.summary && typeof value.summary === 'object' ? value.summary : {};
+  const summary = {
+    added: nonNegativeInteger(sourceSummary.added, counted.added),
+    removed: nonNegativeInteger(sourceSummary.removed, counted.removed),
+    modified: nonNegativeInteger(sourceSummary.modified, counted.modified),
+    truncated: sourceSummary.truncated === true || rawDiffs.length > MAX_SAVED_DIFFS,
+  };
+
+  const comparisonKind = value.comparisonKind === 'text'
+    || value.fallback === true
+    || diffs.some((diff) => diff.path.startsWith('$text['))
+    ? 'text'
+    : 'structural';
+
+  return {
+    mode: mode === 'xml' ? 'xml' : 'json',
+    comparisonKind,
+    fallback: comparisonKind === 'text',
+    fallbackReason: typeof value.fallbackReason === 'string' ? value.fallbackReason.slice(0, 1000) : '',
+    diffs,
+    summary,
+    identical: summary.added + summary.removed + summary.modified === 0,
+    elapsedMs: finiteNonNegative(value.elapsedMs),
+  };
+}
+
+function countDiffTypes(diffs) {
+  const summary = { added: 0, removed: 0, modified: 0 };
+  for (const diff of diffs) summary[diff.type] += 1;
+  return summary;
 }
 
 function normalizeUi(ui) {
@@ -118,6 +176,16 @@ function normalizeScrollPair(value) {
     top: finiteNonNegative(item?.top),
     left: finiteNonNegative(item?.left),
   }));
+}
+
+function positiveIntegerOrNull(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : null;
+}
+
+function nonNegativeInteger(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 ? number : fallback;
 }
 
 function finiteNonNegative(value) {
