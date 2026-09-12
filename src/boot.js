@@ -8,6 +8,8 @@ import './word-wrap.js';
 import './editable-default.js';
 import './sync-scroll.js';
 import './diff-nav-ui.js';
+import './compare-options-ui.js';
+import './compare-options-worker-bridge.js';
 import './editable-compare.js';
 import './aligned-compare-view.js';
 import './aligned-compare-surface-guard.js';
