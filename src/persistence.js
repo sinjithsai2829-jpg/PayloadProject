@@ -1,7 +1,8 @@
 const DB_NAME = 'payloaddiff-session-v1';
 const STORE_NAME = 'sessions';
 const TAB_SESSION_KEY = 'payloaddiff:tab-session:v1';
-const SAVE_DEBOUNCE_MS = 350;
+const SAVE_DEBOUNCE_MS = 500;
+const IDLE_SAVE_TIMEOUT_MS = 1800;
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 
 const editors = [document.querySelector('#editor0'), document.querySelector('#editor1')];
@@ -13,9 +14,12 @@ const sessionId = getTabSessionId();
 
 let dbPromise = null;
 let saveTimer = 0;
+let idleHandle = 0;
 let restoring = false;
 let cleared = false;
-let lastSavedSignature = '';
+let revision = 0;
+let savedRevision = 0;
+let saveInFlight = false;
 
 restoreSession().catch((error) => log('warn', 'persistence.restore.failed', { error }));
 pruneStaleSessions().catch(() => {});
@@ -23,35 +27,36 @@ installPersistenceListeners();
 
 function installPersistenceListeners() {
   editors.forEach((editor) => {
-    editor?.addEventListener('input', () => scheduleSave());
+    editor?.addEventListener('input', () => markDirty());
   });
 
   document.querySelectorAll('.file-input').forEach((input) => {
-    input.addEventListener('change', () => requestAnimationFrame(() => scheduleSave(0)));
+    input.addEventListener('change', () => requestAnimationFrame(() => markDirty(0)));
   });
 
   document.querySelectorAll('.mode-btn').forEach((button) => {
-    button.addEventListener('click', () => requestAnimationFrame(() => scheduleSave(0)));
+    button.addEventListener('click', () => requestAnimationFrame(() => markDirty(0)));
   });
 
   document.querySelectorAll('.view-tabs').forEach((tabs) => {
     tabs.addEventListener('click', (event) => {
       if (!event.target.closest('.view-btn')) return;
-      requestAnimationFrame(() => scheduleSave(0));
+      requestAnimationFrame(() => markDirty(0));
     });
   });
 
-  document.querySelector('.enhancement-sync input[type="checkbox"]')?.addEventListener('change', () => scheduleSave(0));
-  window.addEventListener('payloaddiff:panel-name-changed', () => scheduleSave(0));
-  window.addEventListener('payloaddiff:fold-state-changed', () => scheduleSave(0));
+  document.querySelector('.enhancement-sync input[type="checkbox"]')?.addEventListener('change', () => markDirty(0));
+  window.addEventListener('payloaddiff:panel-name-changed', () => markDirty(0));
+  window.addEventListener('payloaddiff:fold-state-changed', () => markDirty(0));
 
   formatBtn?.addEventListener('click', () => saveWhenOperationFinishes(), true);
   compareBtn?.addEventListener('click', () => saveWhenOperationFinishes(), true);
 
   clearBtn?.addEventListener('click', () => {
     cleared = true;
-    lastSavedSignature = '';
-    clearTimeout(saveTimer);
+    revision = 0;
+    savedRevision = 0;
+    cancelScheduledSave();
     deleteCurrentSession().catch((error) => log('warn', 'persistence.clear.failed', { error }));
   });
 
@@ -60,30 +65,78 @@ function installPersistenceListeners() {
   });
 }
 
-function scheduleSave(delay = SAVE_DEBOUNCE_MS) {
+function markDirty(delay = SAVE_DEBOUNCE_MS) {
   if (restoring) return;
   cleared = false;
+  revision += 1;
+  scheduleSave(delay);
+}
+
+function scheduleSave(delay = SAVE_DEBOUNCE_MS) {
+  if (restoring || cleared) return;
   clearTimeout(saveTimer);
+  cancelIdleSave();
   saveTimer = setTimeout(() => {
+    saveTimer = 0;
+    scheduleIdleSave();
+  }, Math.max(0, delay));
+}
+
+function scheduleIdleSave() {
+  if (restoring || cleared || savedRevision === revision) return;
+  if (typeof requestIdleCallback === 'function') {
+    idleHandle = requestIdleCallback(() => {
+      idleHandle = 0;
+      saveNow().catch((error) => log('warn', 'persistence.save.failed', { error }));
+    }, { timeout: IDLE_SAVE_TIMEOUT_MS });
+    return;
+  }
+
+  idleHandle = setTimeout(() => {
+    idleHandle = 0;
     saveNow().catch((error) => log('warn', 'persistence.save.failed', { error }));
-  }, delay);
+  }, 60);
+}
+
+function cancelScheduledSave() {
+  clearTimeout(saveTimer);
+  saveTimer = 0;
+  cancelIdleSave();
+}
+
+function cancelIdleSave() {
+  if (!idleHandle) return;
+  if (typeof cancelIdleCallback === 'function') cancelIdleCallback(idleHandle);
+  else clearTimeout(idleHandle);
+  idleHandle = 0;
 }
 
 async function saveNow({ force = false } = {}) {
   if (restoring || cleared) return;
-  const record = captureState();
-  const signature = stateSignature(record);
-  if (!force && signature === lastSavedSignature) return;
+  if (!force && savedRevision === revision) return;
+  if (saveInFlight && !force) {
+    scheduleSave(100);
+    return;
+  }
 
-  const db = await openDb();
-  await requestToPromise(transactionStore(db, 'readwrite').put(record));
-  lastSavedSignature = signature;
-  log('debug', 'persistence.saved', {
-    chars: record.panes.map((pane) => pane.text.length),
-    panelNames: record.panelNames,
-    mode: record.mode,
-    foldedRanges: record.foldedRanges,
-  });
+  const revisionAtCapture = revision;
+  const record = captureState();
+  saveInFlight = true;
+  try {
+    const db = await openDb();
+    await requestToPromise(transactionStore(db, 'readwrite').put(record));
+    if (revision === revisionAtCapture) savedRevision = revisionAtCapture;
+    log('debug', 'persistence.saved', {
+      chars: record.panes.map((pane) => pane.text.length),
+      panelNames: record.panelNames,
+      mode: record.mode,
+      foldedRanges: record.foldedRanges,
+      revision: revisionAtCapture,
+    });
+  } finally {
+    saveInFlight = false;
+    if (!cleared && revision !== revisionAtCapture) scheduleSave(100);
+  }
 }
 
 async function restoreSession() {
@@ -125,7 +178,8 @@ async function restoreSession() {
       requestAnimationFrame(() => restoreScrollPositions(record));
     });
 
-    lastSavedSignature = stateSignature(record);
+    revision = 0;
+    savedRevision = 0;
     log('info', 'persistence.restored', {
       chars: record.panes?.map((pane) => pane.text?.length || 0) || [],
       panelNames: record.panelNames || ['File 1', 'File 2'],
@@ -158,16 +212,6 @@ function captureState() {
   };
 }
 
-function stateSignature(record) {
-  return JSON.stringify({
-    mode: record.mode,
-    panelNames: record.panelNames,
-    syncEnabled: record.syncEnabled,
-    foldedRanges: record.foldedRanges,
-    panes: record.panes,
-  });
-}
-
 function restoreScrollPositions(record) {
   for (let index = 0; index < panes.length; index += 1) {
     const saved = record.panes?.[index];
@@ -191,7 +235,7 @@ function saveWhenOperationFinishes() {
   const poll = () => {
     sawBusy ||= document.body.classList.contains('busy');
     if ((sawBusy && !document.body.classList.contains('busy')) || performance.now() - started > 30000) {
-      scheduleSave(0);
+      markDirty(0);
       return;
     }
     requestAnimationFrame(poll);
