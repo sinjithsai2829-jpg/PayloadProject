@@ -7,7 +7,9 @@ import './payload-action-mode-guard.js';
 import './paste-buttons.js';
 import './enhancements.js';
 import './word-wrap.js';
-import './smart-wrap-view.js';
+// The custom Smart Wrap projection is intentionally not booted in production.
+// Native textarea wrapping stays responsive for multi-megabyte JSON/XML payloads,
+// while the projection could create thousands of DOM nodes for one huge line.
 import './wrap-indent-guide-guard.js';
 import './editable-default.js';
 import './sync-scroll.js';
@@ -24,14 +26,14 @@ import './inline-diff-highlights.js';
 import './code-folding.js';
 import './tree-diff-navigation.js';
 import './diagnostics.js';
-import './diagnostics-trace.js';
+// Correlated deep tracing remains available as a source module/test utility but
+// is not loaded by default because repeated full-payload fingerprints and DOM
+// snapshots can stall the UI when payloads are several megabytes.
 import './panel-names.js';
 import './persistence.js';
 import './diff-visibility.js';
 import './editable-code-surface.js';
 import './scrollbar-visibility.js';
-import './smart-wrap-scroll-bridge.js';
-import './smart-wrap-scroll-guard.js';
 import './saved-comparisons.js';
 import './editor-syntax-markers.js';
 import './theme-diagnostics-contrast.js';

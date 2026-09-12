@@ -40,9 +40,13 @@ const noLoss = splitSmartWrappedLine('abc def ghi jkl mno pqr stu', 12, 4, 2);
 assert.equal(noLoss.map((segment) => segment.text).join(''), 'abc def ghi jkl mno pqr stu');
 assert.ok(noLoss.every((segment) => segment.end > segment.start));
 
-assert.ok(boot.includes("import './smart-wrap-view.js'"));
-assert.ok(boot.includes("import './smart-wrap-scroll-bridge.js'"));
-assert.ok(boot.includes("import './smart-wrap-scroll-guard.js'"));
+// The custom projection remains tested and available in source, but production
+// boots the native textarea wrapping path so multi-megabyte JSON/XML lines do
+// not create thousands of DOM spans and block the main thread.
+assert.ok(boot.includes("import './word-wrap.js'"));
+assert.ok(!boot.includes("import './smart-wrap-view.js'"));
+assert.ok(!boot.includes("import './smart-wrap-scroll-bridge.js'"));
+assert.ok(!boot.includes("import './smart-wrap-scroll-guard.js'"));
 assert.ok(view.includes("surface.className = 'smart-wrap-view hidden'"));
 assert.ok(view.includes("continuationStrategy: 'hanging-indent'"));
 assert.ok(view.includes('SMART_WRAP_MAX_COLUMNS'));
@@ -57,7 +61,7 @@ assert.ok(guard.includes('isSyncingFromSmart'));
 assert.ok(guard.includes('stopImmediatePropagation'));
 assert.ok(guard.includes('capture: true'));
 
-// Shared renderer and scroll fix: behavior must never diverge by payload mode.
+// Shared renderer and scroll code must never diverge by payload mode.
 for (const source of [view, bridge, guard]) {
   assert.ok(!source.includes("mode === 'json'"));
   assert.ok(!source.includes("mode === 'xml'"));

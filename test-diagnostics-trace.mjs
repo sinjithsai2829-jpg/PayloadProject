@@ -4,10 +4,13 @@ import fs from 'node:fs/promises';
 const trace = await fs.readFile(new URL('./src/diagnostics-trace.js', import.meta.url), 'utf8');
 const boot = await fs.readFile(new URL('./src/boot.js', import.meta.url), 'utf8');
 
-assert.ok(boot.includes("import './diagnostics-trace.js'"));
+// Deep correlated tracing remains available for dedicated debugging, but it is
+// intentionally excluded from normal production boot: its repeated payload
+// fingerprints and DOM/style snapshots are too expensive for multi-MB inputs.
+assert.ok(!boot.includes("import './diagnostics-trace.js'"));
 
-// Every important user action should be correlated from start through settled
-// checkpoints rather than appearing as unrelated log entries.
+// Every important traced action should still be correlated from start through
+// settled checkpoints when the diagnostic module is loaded explicitly.
 assert.ok(trace.includes('trace.action-started'));
 assert.ok(trace.includes('trace.action-checkpoint'));
 assert.ok(trace.includes('trace.action-settled'));
@@ -28,8 +31,7 @@ assert.ok(trace.includes("'theme'"));
 assert.ok(!trace.includes('payloadText:'));
 assert.ok(!trace.includes('searchText:'));
 
-// Rendering diagnostics must understand every surface that can own Code view,
-// including Smart Wrap and the aligned Notepad-style comparison renderer.
+// Rendering diagnostics still understand every supported surface when enabled.
 assert.ok(trace.includes("'.smart-wrap-view'"));
 assert.ok(trace.includes("'.aligned-compare-view'"));
 assert.ok(trace.includes("'.tree-view'"));
