@@ -5,8 +5,9 @@ style.textContent = `
   .tree-view,
   .fold-code-view,
   .aligned-compare-view {
-    scrollbar-width: auto;
+    scrollbar-width: auto !important;
     scrollbar-color: #647896 #08101d;
+    scrollbar-gutter: stable;
     color-scheme: dark;
   }
 
@@ -14,8 +15,8 @@ style.textContent = `
   .tree-view::-webkit-scrollbar,
   .fold-code-view::-webkit-scrollbar,
   .aligned-compare-view::-webkit-scrollbar {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
   }
 
   .editor::-webkit-scrollbar-track,
@@ -30,7 +31,7 @@ style.textContent = `
   .tree-view::-webkit-scrollbar-thumb,
   .fold-code-view::-webkit-scrollbar-thumb,
   .aligned-compare-view::-webkit-scrollbar-thumb {
-    min-height: 44px;
+    min-height: 48px;
     background: #647896;
     border: 3px solid #08101d;
     border-radius: 999px;
@@ -62,57 +63,74 @@ style.textContent = `
     background: #08101d;
   }
 
-  /* The aligned comparison surface replaces the textarea while a one-sided
-     added/removed row needs a visual spacer. It must inherit the same theme as
-     the regular JSON/XML Code and Tree scroll surfaces. */
+  /* Light mode needs stronger contrast than the previous pale gray-on-gray
+     treatment. This is especially important on macOS/Chrome where overlay
+     scrollbars can otherwise visually disappear against the editor surface. */
   html[data-theme="light"] .editor,
   html[data-theme="light"] .tree-view,
   html[data-theme="light"] .fold-code-view,
   html[data-theme="light"] .aligned-compare-view {
-    scrollbar-color: #94a3b8 #eef2f7 !important;
+    scrollbar-width: auto !important;
+    scrollbar-color: #475569 #e2e8f0 !important;
+    scrollbar-gutter: stable;
     color-scheme: light;
+  }
+
+  html[data-theme="light"] .editor::-webkit-scrollbar,
+  html[data-theme="light"] .tree-view::-webkit-scrollbar,
+  html[data-theme="light"] .fold-code-view::-webkit-scrollbar,
+  html[data-theme="light"] .aligned-compare-view::-webkit-scrollbar {
+    width: 16px;
+    height: 16px;
+    background: #e2e8f0;
   }
 
   html[data-theme="light"] .editor::-webkit-scrollbar-track,
   html[data-theme="light"] .tree-view::-webkit-scrollbar-track,
   html[data-theme="light"] .fold-code-view::-webkit-scrollbar-track,
   html[data-theme="light"] .aligned-compare-view::-webkit-scrollbar-track {
-    background: #eef2f7 !important;
-    border-color: #dbe3ee !important;
+    background: #e2e8f0 !important;
+    border-left: 1px solid #cbd5e1 !important;
+    box-shadow: inset 1px 0 0 rgba(15,23,42,.08);
   }
 
   html[data-theme="light"] .editor::-webkit-scrollbar-thumb,
   html[data-theme="light"] .tree-view::-webkit-scrollbar-thumb,
   html[data-theme="light"] .fold-code-view::-webkit-scrollbar-thumb,
   html[data-theme="light"] .aligned-compare-view::-webkit-scrollbar-thumb {
-    background: #94a3b8 !important;
-    border-color: #eef2f7 !important;
+    min-height: 48px;
+    background: #475569 !important;
+    border: 3px solid #e2e8f0 !important;
+    border-radius: 999px;
+    background-clip: padding-box;
+    box-shadow: inset 0 0 0 1px rgba(15,23,42,.22);
   }
 
   html[data-theme="light"] .editor::-webkit-scrollbar-thumb:hover,
   html[data-theme="light"] .tree-view::-webkit-scrollbar-thumb:hover,
   html[data-theme="light"] .fold-code-view::-webkit-scrollbar-thumb:hover,
   html[data-theme="light"] .aligned-compare-view::-webkit-scrollbar-thumb:hover {
-    background: #64748b !important;
-    border-color: #eef2f7 !important;
+    background: #334155 !important;
+    border-color: #e2e8f0 !important;
   }
 
   html[data-theme="light"] .editor::-webkit-scrollbar-thumb:active,
   html[data-theme="light"] .tree-view::-webkit-scrollbar-thumb:active,
   html[data-theme="light"] .fold-code-view::-webkit-scrollbar-thumb:active,
   html[data-theme="light"] .aligned-compare-view::-webkit-scrollbar-thumb:active {
-    background: #475569 !important;
-    border-color: #eef2f7 !important;
+    background: #1e293b !important;
+    border-color: #e2e8f0 !important;
   }
 
   html[data-theme="light"] .editor::-webkit-scrollbar-corner,
   html[data-theme="light"] .tree-view::-webkit-scrollbar-corner,
   html[data-theme="light"] .fold-code-view::-webkit-scrollbar-corner,
   html[data-theme="light"] .aligned-compare-view::-webkit-scrollbar-corner {
-    background: #eef2f7 !important;
+    background: #e2e8f0 !important;
   }
 
-  /* Both panes always keep a visible scrollbar. Sync views & scroll controls
-     movement only; it must never hide either pane's own navigation affordance. */
+  /* Both panes always keep their own scrollbar/gutter. Sync views & scroll
+     controls movement only; it must never remove either pane's navigation
+     affordance. This shared selector intentionally has no JSON/XML branch. */
 `;
 document.head.appendChild(style);
