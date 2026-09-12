@@ -1,5 +1,6 @@
 import { searchJsonTree } from './search.js';
 import { formatJsonBestEffort, formatXmlBestEffort, recoverJsonForFormatting } from './resilient-format.js';
+import { formatJsonFast, formatXmlFast } from './fast-format.js';
 import { detectPayloadIssues } from './syntax-issues.js';
 import { compareTextPayloads } from './text-fallback-diff.js';
 import { compareFormattedXml } from './xml-compare.js';
@@ -16,21 +17,25 @@ self.onmessage = (event) => {
 
     if (task === 'format') {
       result = payload.mode === 'xml'
-        ? formatXmlBestEffort(payload.text)
-        : formatJsonBestEffort(payload.text);
+        ? formatXmlFast(payload.text)
+        : formatJsonFast(payload.text);
 
-      result.issues = detectPayloadIssues({ mode: payload.mode, text: result.formatted });
+      if (payload.includeIssues !== false) {
+        result.issues = detectPayloadIssues({ mode: payload.mode, text: result.formatted });
+      }
 
       if (payload.mode === 'json' && Number.isInteger(payload.paneIndex)) {
         if (result.parsed != null) jsonCache.set(payload.paneIndex, result.parsed);
         else jsonCache.delete(payload.paneIndex);
       }
+
+      if (payload.includeParsed === false) delete result.parsed;
     } else if (task === 'compare') {
       result = compareWithRecovery(payload);
     } else if (task === 'searchJson') {
       let parsed = jsonCache.get(payload.paneIndex);
       if (parsed == null) {
-        const formatted = formatJsonBestEffort(payload.text);
+        const formatted = formatJsonFast(payload.text);
         if (formatted.parsed == null) {
           throw new Error(`Tree/search requires structurally valid JSON after recovery. ${formatted.warning || ''}`.trim());
         }
@@ -60,30 +65,37 @@ self.onmessage = (event) => {
 };
 
 function compareWithRecovery(payload) {
+  const started = now();
   const options = normalizeCompareOptions(payload.options || {});
+  const performanceMode = payload.performanceMode === true;
+
   if (payload.mode === 'xml') {
-    const left = formatXmlBestEffort(payload.left);
-    const right = formatXmlBestEffort(payload.right);
+    const left = formatXmlFast(payload.left);
+    const right = formatXmlFast(payload.right);
     if (!left.valid || !right.valid) {
-      return compareTextPayloads({
-        mode: 'xml',
-        left: payload.left,
-        right: payload.right,
-        reason: structuralReason('XML', left, right),
-        options,
-      });
+      return {
+        ...compareTextPayloads({
+          mode: 'xml',
+          left: payload.left,
+          right: payload.right,
+          reason: structuralReason('XML', left, right),
+          options,
+        }),
+        leftFormatted: left.formatted,
+        rightFormatted: right.formatted,
+        elapsedMs: Math.round(now() - started),
+      };
     }
     return {
       ...compareFormattedXml(left.formatted, right.formatted, options),
+      leftFormatted: left.formatted,
+      rightFormatted: right.formatted,
       comparisonKind: 'structural',
       fallback: false,
+      elapsedMs: Math.round(now() - started),
     };
   }
 
-  // JSON.parse silently keeps only the last occurrence of duplicate object keys.
-  // Comparing that parsed object would therefore hide source lines the user can
-  // clearly see in the editor. Detect this before structural parsing and switch
-  // to the same lossless line comparison used for malformed payloads.
   const recoveredLeft = recoverJsonForFormatting(payload.left).text;
   const recoveredRight = recoverJsonForFormatting(payload.right).text;
   const fidelityIssue = jsonComparisonFidelityIssue(recoveredLeft, recoveredRight);
@@ -97,37 +109,57 @@ function compareWithRecovery(payload) {
         options,
       }),
       fidelityIssue,
+      leftFormatted: payload.left,
+      rightFormatted: payload.right,
+      elapsedMs: Math.round(now() - started),
     };
   }
 
-  const left = formatJsonBestEffort(payload.left);
-  const right = formatJsonBestEffort(payload.right);
+  const left = formatJsonFast(payload.left);
+  const right = formatJsonFast(payload.right);
   if (left.parsed == null || right.parsed == null) {
-    return compareTextPayloads({
-      mode: 'json',
-      left: payload.left,
-      right: payload.right,
-      reason: structuralReason('JSON', left, right),
-      options,
-    });
+    return {
+      ...compareTextPayloads({
+        mode: 'json',
+        left: payload.left,
+        right: payload.right,
+        reason: structuralReason('JSON', left, right),
+        options,
+      }),
+      leftFormatted: left.formatted,
+      rightFormatted: right.formatted,
+      elapsedMs: Math.round(now() - started),
+    };
   }
 
   const compared = compareJsonValues(left.parsed, right.parsed, undefined, options);
   const ordered = attachPrettyJsonLineNumbers(left.parsed, right.parsed, compared.diffs);
-  const leftLines = JSON.stringify(left.parsed, null, 2).split('\n');
-  const rightLines = JSON.stringify(right.parsed, null, 2).split('\n');
-  const moved = annotateMovedLineDiffs(ordered, leftLines, rightLines, options);
+  let diffs = ordered;
+  let movedPairs = 0;
+  if (!performanceMode) {
+    const moved = annotateMovedLineDiffs(
+      ordered,
+      left.formatted.split('\n'),
+      right.formatted.split('\n'),
+      options,
+    );
+    diffs = moved.diffs;
+    movedPairs = moved.movedPairs;
+  }
+
   return {
     mode: 'json',
-    diffs: moved.diffs,
-    ordered: moved.diffs,
-    summary: { ...compared.summary, moved: moved.movedPairs },
+    diffs,
+    ordered: diffs,
+    summary: { ...compared.summary, moved: movedPairs },
     identical: compared.identical,
     compareOptions: options,
-    movedPairs: moved.movedPairs,
+    movedPairs,
     comparisonKind: 'structural',
     fallback: false,
-    elapsedMs: 0,
+    leftFormatted: left.formatted,
+    rightFormatted: right.formatted,
+    elapsedMs: Math.round(now() - started),
   };
 }
 
@@ -141,4 +173,8 @@ function structuralReason(label, left, right) {
     if (!right.valid) issues.push(`File 2: ${right.warning || 'invalid XML'}`);
   }
   return `${label} structural parsing unavailable. ${issues.join(' · ')}`.trim();
+}
+
+function now() {
+  return typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
 }

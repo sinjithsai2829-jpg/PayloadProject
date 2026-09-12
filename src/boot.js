@@ -6,11 +6,22 @@ import './payload-auto-detect.js';
 import './payload-action-mode-guard.js';
 import './paste-buttons.js';
 import './enhancements.js';
-import './word-wrap.js';
+import './panel-names.js';
+import './persistence.js';
+
+// Huge payloads get a protected, viewport-virtualized path before legacy editor
+// enhancements are registered. The canonical text remains local in the hidden
+// editor, but only visible rows/columns are painted and heavy input listeners
+// are blocked once large mode is active.
 import './large-payload-view.js';
+import './large-payload-controller.js';
+import './large-payload-performance-guard.js';
+import './large-payload-diff-overlay.js';
+
+import './word-wrap.js';
 // The custom Smart Wrap projection is intentionally not booted in production.
-// Native textarea wrapping stays responsive for ordinary JSON/XML payloads,
-// while virtual large-payload mode owns rendering when the source is huge.
+// Native textarea wrapping stays available for ordinary JSON/XML payloads;
+// virtual large-payload mode owns rendering when the source is huge.
 import './wrap-indent-guide-guard.js';
 import './editable-default.js';
 import './sync-scroll.js';
@@ -27,11 +38,9 @@ import './inline-diff-highlights.js';
 import './code-folding.js';
 import './tree-diff-navigation.js';
 import './diagnostics.js';
-// Correlated deep tracing remains available as a source module/test utility but
-// is not loaded by default because repeated full-payload fingerprints and DOM
-// snapshots can stall the UI when payloads are several megabytes.
-import './panel-names.js';
-import './persistence.js';
+// Correlated deep tracing remains available as an explicit debugging module but
+// is not loaded by default because full-payload fingerprints and DOM snapshots
+// are inappropriate on the production hot path for multi-megabyte documents.
 import './diff-visibility.js';
 import './editable-code-surface.js';
 import './scrollbar-visibility.js';
