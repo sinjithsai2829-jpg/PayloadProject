@@ -5,6 +5,7 @@ import './payload-auto-detect.js';
 import './paste-buttons.js';
 import './enhancements.js';
 import './word-wrap.js';
+import './smart-wrap-view.js';
 import './wrap-indent-guide-guard.js';
 import './editable-default.js';
 import './sync-scroll.js';
