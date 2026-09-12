@@ -1,5 +1,5 @@
 import { parseXmlTree, searchXmlTree } from './xml-tree.js';
-import { formatXmlBestEffort } from './resilient-format.js';
+import { normalizeEscapedXml } from './core.js';
 
 const cache = new Map();
 
@@ -19,9 +19,12 @@ self.onmessage = ({ data }) => {
 
     let model = cache.get(paneIndex);
     if (task === 'build' || !model) {
-      const formatted = formatXmlBestEffort(text);
-      if (!formatted.valid) throw new Error(formatted.warning || 'XML is not structurally valid enough for Tree view.');
-      model = parseXmlTree(formatted.formatted);
+      // Tree parsing does not need a second pretty-format pass. The editor
+      // already contains readable XML in normal usage, and parseXmlTree itself
+      // performs structural validation. Avoiding formatXmlBestEffort here saves
+      // another full traversal/allocation of multi-megabyte XML documents.
+      const cleaned = normalizeEscapedXml(text);
+      model = parseXmlTree(cleaned);
       cache.set(paneIndex, model);
     }
 
