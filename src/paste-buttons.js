@@ -20,8 +20,15 @@ function installPasteButton(index) {
   button.title = 'Paste clipboard content into this panel';
   button.setAttribute('aria-label', `Paste clipboard content into File ${index + 1}`);
 
+  // Keep the two clipboard actions together for faster developer workflows:
+  // Paste · Copy · Upload. Upload remains available, but no longer separates
+  // the two clipboard actions visually.
+  const copy = actions.querySelector('.copy-btn');
   const upload = actions.querySelector('.upload-btn');
-  actions.insertBefore(button, upload || actions.firstChild);
+  if (copy) actions.insertBefore(button, copy);
+  else actions.prepend(button);
+  if (upload) actions.appendChild(upload);
+
   button.addEventListener('click', () => pasteIntoPane(index, button));
 }
 
