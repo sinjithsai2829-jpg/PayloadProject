@@ -1,5 +1,5 @@
 import { searchJsonTree } from './search.js';
-import { formatJsonBestEffort, formatXmlBestEffort, recoverJsonForFormatting } from './resilient-format.js';
+import { recoverJsonForFormatting } from './resilient-format.js';
 import { formatJsonFast, formatXmlFast } from './fast-format.js';
 import { detectPayloadIssues } from './syntax-issues.js';
 import { compareTextPayloads } from './text-fallback-diff.js';
@@ -96,9 +96,13 @@ function compareWithRecovery(payload) {
     };
   }
 
-  const recoveredLeft = recoverJsonForFormatting(payload.left).text;
-  const recoveredRight = recoverJsonForFormatting(payload.right).text;
-  const fidelityIssue = jsonComparisonFidelityIssue(recoveredLeft, recoveredRight);
+  // Parse/format exactly once for ordinary valid JSON. Only repaired JSON pays
+  // the additional recovery scan needed to preserve source-level fidelity.
+  const left = formatJsonFast(payload.left);
+  const right = formatJsonFast(payload.right);
+  const fidelityLeft = left.repaired ? recoverJsonForFormatting(payload.left).text : payload.left;
+  const fidelityRight = right.repaired ? recoverJsonForFormatting(payload.right).text : payload.right;
+  const fidelityIssue = jsonComparisonFidelityIssue(fidelityLeft, fidelityRight);
   if (fidelityIssue) {
     return {
       ...compareTextPayloads({
@@ -109,14 +113,12 @@ function compareWithRecovery(payload) {
         options,
       }),
       fidelityIssue,
-      leftFormatted: payload.left,
-      rightFormatted: payload.right,
+      leftFormatted: left.formatted,
+      rightFormatted: right.formatted,
       elapsedMs: Math.round(now() - started),
     };
   }
 
-  const left = formatJsonFast(payload.left);
-  const right = formatJsonFast(payload.right);
   if (left.parsed == null || right.parsed == null) {
     return {
       ...compareTextPayloads({

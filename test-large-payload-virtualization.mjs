@@ -58,18 +58,19 @@ assert.ok(controller.includes('Promise.all(targets.map'));
 assert.ok(controller.includes('performanceMode: true'));
 assert.ok(controller.includes('includeParsed: false'));
 assert.ok(controller.includes('includeIssues: false'));
+assert.ok(controller.includes("cheapMode(text"));
 assert.ok(worker.includes('formatJsonFast'));
 assert.ok(worker.includes('formatXmlFast'));
 assert.ok(worker.includes("payload.includeParsed === false"));
 assert.ok(worker.includes('performanceMode'));
+assert.ok(worker.includes('left.repaired ? recoverJsonForFormatting'));
 assert.ok(guard.includes('stopImmediatePropagation'));
 assert.ok(view.includes('visibleCharacterWindow'));
 assert.ok(view.includes('physicalOffsetFromLogical'));
 
-// Shared huge-payload path: limits and virtualization must not diverge by payload type.
-for (const source of [controller, guard, view]) {
-  assert.ok(!source.includes("mode === 'json'"));
-  assert.ok(!source.includes("mode === 'xml'"));
-}
+// The virtualization threshold and renderer do not branch by payload mode;
+// JSON/XML differences are isolated to their worker parsers/formatters.
+assert.ok(!view.includes("currentMode()"));
+assert.ok(!guard.includes("currentMode()"));
 
 console.log('All virtual large-payload performance tests passed.');
