@@ -5,7 +5,7 @@ import {
 
 export { parsePortableComparisonHtml };
 
-export const PORTABLE_EXPORT_VERSION = 'browser-v3';
+export const PORTABLE_EXPORT_VERSION = 'browser-v4';
 
 export function portableComparisonDownloadName(date = new Date()) {
   const stamp = date.toISOString().replace(/[:.]/g, '-');
@@ -17,7 +17,9 @@ export function createPortableComparisonHtml(snapshot) {
   html = repairInlineRuntimeEscapes(html);
   html = repairGeneratedRuntimeFunctions(html);
   html = patchPortableDifferenceNavigation(html);
-  html = addExportVersionMarker(html);
+  html = patchSavedComparisonBootstrap(html);
+  html = addExportVersionMarker(html, snapshot);
+  html = addModernStandaloneTheme(html, snapshot);
   html = prefillPanelNames(html, snapshot);
   html = prefillPayloadTextareas(html, snapshot);
   html = prefillStaticMetadata(html, snapshot);
@@ -113,6 +115,28 @@ export function patchPortableDifferenceNavigation(html) {
   return output;
 }
 
+export function patchSavedComparisonBootstrap(html) {
+  let output = String(html);
+  const bootstrap = [
+    "function restoreSavedComparison(){",
+    "var saved=snapshot&&snapshot.comparison;",
+    "if(!saved||!Array.isArray(saved.diffs))return false;",
+    "ordered=saved.diffs.map(function(d,i){return{path:typeof d.path==='string'?d.path:'$saved['+i+']',type:d.type==='added'||d.type==='removed'?d.type:'modified',leftLine:d.leftLine||null,rightLine:d.rightLine||null};});",
+    "summary=saved.summary&&typeof saved.summary==='object'?{added:Number(saved.summary.added)||0,removed:Number(saved.summary.removed)||0,modified:Number(saved.summary.modified)||0,truncated:saved.summary.truncated===true}:{added:0,removed:0,modified:0,truncated:false};",
+    "current=Math.min(Math.max(0,snapshot.ui&&Number.isInteger(snapshot.ui.currentDiffIndex)?snapshot.ui.currentDiffIndex:0),Math.max(0,ordered.length-1));",
+    "exact=new Map();ancestors=new Set();",
+    "if(mode==='json'&&saved.comparisonKind!=='text'){try{parsed=[parseJson(editors[0].value),parseJson(editors[1].value)];ordered.forEach(function(d){exact.set(d.path,d.type);var a=pathAncestors(d.path);for(var i=0;i<a.length-1;i++)ancestors.add(a[i]);});}catch(_){parsed=[null,null];}}else{parsed=[null,null];}",
+    "buildIndexes();renderSummary();renderAllCode();renderTrees();restoreUi();updateNav();",
+    "if(ordered.length)scrollToCurrent();",
+    "status.textContent=saved.comparisonKind==='text'?'Saved text comparison ready':ordered.length?'Saved comparison ready':'No differences';status.classList.remove('error');",
+    "return true;",
+    "}",
+  ].join('');
+
+  output = output.replace('recompare(true);', `if(!restoreSavedComparison())recompare(true);\n\n${bootstrap}`);
+  return output;
+}
+
 export function extractPortableRuntimeScript(html) {
   const marker = "<script>\n(function(){";
   const start = String(html).lastIndexOf(marker);
@@ -131,13 +155,59 @@ function replaceGeneratedFunction(html, startMarker, endMarker, replacement) {
   return html.slice(0, start) + replacement + html.slice(end);
 }
 
-function addExportVersionMarker(html) {
+function addExportVersionMarker(html, snapshot) {
+  const theme = snapshot?.ui?.theme === 'light' ? 'light' : 'dark';
   return String(html)
     .replace(
+      '<html lang="en">',
+      `<html lang="en" data-theme="${theme}">`,
+    )
+    .replace(
       '<title>PayloadDiff Saved Comparison</title>',
-      `<title>PayloadDiff Saved Comparison</title>\n<meta name="payloaddiff-export-version" content="${PORTABLE_EXPORT_VERSION}" />`,
+      `<title>PayloadDiff Downloaded Comparison</title>\n<meta name="payloaddiff-export-version" content="${PORTABLE_EXPORT_VERSION}" />`,
     )
     .replace('<body>', `<body data-payloaddiff-export="${PORTABLE_EXPORT_VERSION}">`);
+}
+
+function addModernStandaloneTheme(html, snapshot) {
+  const theme = snapshot?.ui?.theme === 'light' ? 'light' : 'dark';
+  const css = `
+<style id="payloaddiff-v4-theme">
+html{color-scheme:${theme}}
+body[data-payloaddiff-export="browser-v4"]{margin:0;min-width:320px;min-height:100vh}
+body[data-payloaddiff-export="browser-v4"] .app{width:min(1900px,100%);max-width:none;padding:22px}
+body[data-payloaddiff-export="browser-v4"] .top{align-items:center;margin-bottom:16px}
+body[data-payloaddiff-export="browser-v4"] .brand h1{font-size:27px;letter-spacing:-.04em}
+body[data-payloaddiff-export="browser-v4"] .pill{padding:4px 8px;font-size:11px}
+body[data-payloaddiff-export="browser-v4"] .summary{min-height:52px;border-radius:12px;padding:10px 12px;margin-bottom:14px}
+body[data-payloaddiff-export="browser-v4"] .workspace{gap:14px}
+body[data-payloaddiff-export="browser-v4"] .pane{border-radius:12px;overflow:clip}
+body[data-payloaddiff-export="browser-v4"] .paneHead{padding:12px 13px 10px}
+body[data-payloaddiff-export="browser-v4"] .paneHead strong{font-size:15px}
+body[data-payloaddiff-export="browser-v4"] .tabs{min-height:48px;padding:7px 10px;align-items:center}
+body[data-payloaddiff-export="browser-v4"] .tabs button{padding:5px 10px;font-size:12px}
+body[data-payloaddiff-export="browser-v4"] .viewport{height:calc(100vh - 280px);min-height:430px}
+body[data-payloaddiff-export="browser-v4"] .status{font-size:12px}
+body[data-payloaddiff-export="browser-v4"] .note{padding:14px 2px 4px;margin:0;font-size:11px}
+html[data-theme="light"],html[data-theme="light"] body{background:#f3f6fb!important;color:#172033!important}
+html[data-theme="light"] .card,html[data-theme="light"] .pane{background:#fff!important;border-color:#cbd5e1!important;box-shadow:0 12px 32px rgba(15,23,42,.08)!important}
+html[data-theme="light"] .brand p,html[data-theme="light"] .note,html[data-theme="light"] .paneHead span,html[data-theme="light"] .status{color:#64748b!important}
+html[data-theme="light"] .pill{background:#ecfdf5!important;border-color:#a7f3d0!important;color:#047857!important}
+html[data-theme="light"] button{background:#fff!important;border-color:#cbd5e1!important;color:#24324a!important}
+html[data-theme="light"] button:hover:not(:disabled){background:#f1f5f9!important;border-color:#94a3b8!important}
+html[data-theme="light"] .tabs{background:#fff!important;border-color:#d9e1ec!important}
+html[data-theme="light"] .tabs button.active{background:#2563eb!important;border-color:#3b82f6!important;color:#fff!important}
+html[data-theme="light"] .viewport,html[data-theme="light"] .codeScroll,html[data-theme="light"] .treeScroll,html[data-theme="light"] .codeEditor,html[data-theme="light"] .overlay{background:#fff!important;color:#1e293b!important}
+html[data-theme="light"] .gutter{background:#f8fafc!important;border-color:#d6dee9!important}
+html[data-theme="light"] .gutterRow{color:#64748b!important}
+html[data-theme="light"] .treeRow:hover{background:#f1f5f9!important}
+html[data-theme="light"] .treeKey{color:#1d4ed8!important}html[data-theme="light"] .treeValue{color:#64748b!important}html[data-theme="light"] .treeValue.string{color:#047857!important}html[data-theme="light"] .treeValue.number{color:#b45309!important}html[data-theme="light"] .treeValue.boolean{color:#6d28d9!important}
+html[data-theme="light"] .band.modified,html[data-theme="light"] .treeRow.modified{background:rgba(245,158,11,.16)!important}html[data-theme="light"] .band.added,html[data-theme="light"] .treeRow.added{background:rgba(34,197,94,.13)!important}html[data-theme="light"] .band.removed,html[data-theme="light"] .treeRow.removed{background:rgba(239,68,68,.13)!important}
+html[data-theme="light"] .addedText{color:#15803d!important}html[data-theme="light"] .removedText{color:#dc2626!important}html[data-theme="light"] .modifiedText{color:#b45309!important}
+html[data-theme="light"] .codeEditor,html[data-theme="light"] .treeScroll{scrollbar-color:#94a3b8 #eef2f7!important}
+@media(max-width:900px){body[data-payloaddiff-export="browser-v4"] .app{padding:12px}body[data-payloaddiff-export="browser-v4"] .viewport{height:55vh;min-height:380px}}
+</style>`;
+  return String(html).replace('</head>', `${css}\n</head>`);
 }
 
 function prefillPanelNames(html, snapshot) {
@@ -165,14 +235,15 @@ function prefillStaticMetadata(html, snapshot) {
   const leftLines = lineCount(snapshot.payloads.left);
   const rightLines = lineCount(snapshot.payloads.right);
   const createdAt = snapshot.createdAt || '';
+  const kind = snapshot.comparison?.comparisonKind === 'text' ? 'text fallback' : 'structural';
   return String(html)
     .replace(
       '<p id="savedMeta">Portable comparison file</p>',
-      `<p id="savedMeta">${escapeHtmlText(snapshot.mode.toUpperCase())} comparison · ${PORTABLE_EXPORT_VERSION} · ${escapeHtmlText(createdAt)}</p>`,
+      `<p id="savedMeta">${escapeHtmlText(snapshot.mode.toUpperCase())} comparison · ${escapeHtmlText(kind)} · ${PORTABLE_EXPORT_VERSION} · ${escapeHtmlText(createdAt)}</p>`,
     )
     .replace('<span id="meta0"></span>', `<span id="meta0">${leftLines.toLocaleString()} lines</span>`)
     .replace('<span id="meta1"></span>', `<span id="meta1">${rightLines.toLocaleString()} lines</span>`)
-    .replace('<div id="status" class="status">Ready</div>', '<div id="status" class="status">Loading saved comparison…</div>');
+    .replace('<div id="status" class="status">Ready</div>', '<div id="status" class="status">Loading downloaded comparison…</div>');
 }
 
 function addRuntimeErrorReporter(html) {
@@ -182,7 +253,7 @@ function addRuntimeErrorReporter(html) {
   const snapshotEnd = String(html).indexOf('</script>', snapshotStart);
   if (snapshotEnd < 0) return html;
   const insertAt = snapshotEnd + '</script>'.length;
-  const reporter = `\n<script>window.addEventListener('error',function(event){var status=document.getElementById('status');if(status){status.textContent='Saved comparison runtime error: '+(event.message||'unknown error');status.classList.add('error');}});<\/script>`;
+  const reporter = `\n<script>window.addEventListener('error',function(event){var status=document.getElementById('status');if(status){status.textContent='Downloaded comparison runtime error: '+(event.message||'unknown error');status.classList.add('error');}});<\/script>`;
   return String(html).slice(0, insertAt) + reporter + String(html).slice(insertAt);
 }
 
