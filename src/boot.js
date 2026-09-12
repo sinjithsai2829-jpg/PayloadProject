@@ -7,9 +7,10 @@ import './payload-action-mode-guard.js';
 import './paste-buttons.js';
 import './enhancements.js';
 import './word-wrap.js';
+import './large-payload-view.js';
 // The custom Smart Wrap projection is intentionally not booted in production.
-// Native textarea wrapping stays responsive for multi-megabyte JSON/XML payloads,
-// while the projection could create thousands of DOM nodes for one huge line.
+// Native textarea wrapping stays responsive for ordinary JSON/XML payloads,
+// while virtual large-payload mode owns rendering when the source is huge.
 import './wrap-indent-guide-guard.js';
 import './editable-default.js';
 import './sync-scroll.js';
