@@ -18,14 +18,14 @@ const toolbarLeft = document.querySelector('.toolbar-left');
 const syncInput = document.querySelector('.enhancement-sync input[type="checkbox"]');
 
 const saveBtn = document.createElement('button');
-saveBtn.id = 'saveComparisonBtn';
-saveBtn.textContent = 'Save comparison';
+saveBtn.id = 'downloadComparisonBtn';
+saveBtn.textContent = 'Download comparison';
 saveBtn.title = 'Download a browser-openable HTML file containing both payloads and the comparison view';
 
 const openBtn = document.createElement('button');
 openBtn.id = 'openComparisonBtn';
 openBtn.textContent = 'Open comparison';
-openBtn.title = 'Open a saved PayloadDiff HTML or legacy .payloaddiff comparison file';
+openBtn.title = 'Open a downloaded PayloadDiff HTML or legacy .payloaddiff comparison file';
 
 const openInput = document.createElement('input');
 openInput.id = 'openComparisonInput';
@@ -35,7 +35,7 @@ openInput.className = 'hidden';
 
 if (toolbarLeft) toolbarLeft.append(saveBtn, openBtn, openInput);
 
-saveBtn.addEventListener('click', saveComparison);
+saveBtn.addEventListener('click', downloadComparison);
 openBtn.addEventListener('click', () => openInput.click());
 openInput.addEventListener('change', openComparison);
 
@@ -74,9 +74,9 @@ function captureUiState() {
   };
 }
 
-function saveComparison() {
+function downloadComparison() {
   if (!comparisonIsActive()) {
-    setStatus('Run Compare before saving a comparison.', true);
+    setStatus('Run Compare before downloading a comparison.', true);
     return;
   }
 
@@ -98,8 +98,8 @@ function saveComparison() {
     anchor.click();
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
-    setStatus(`Comparison saved as ${filename}. Double-click it to reopen the comparison in your default browser.`);
-    log('info', 'comparison-file.saved', {
+    setStatus(`Comparison downloaded as ${filename}. Double-click it to reopen the comparison in your default browser.`);
+    log('info', 'comparison-file.downloaded', {
       format: 'portable-html',
       exportVersion: PORTABLE_EXPORT_VERSION,
       filename,
@@ -111,8 +111,8 @@ function saveComparison() {
       currentDiffIndex: snapshot.ui.currentDiffIndex,
     });
   } catch (error) {
-    setStatus(error.message || 'Unable to save comparison.', true);
-    log('error', 'comparison-file.save.failed', { error });
+    setStatus(error.message || 'Unable to download comparison.', true);
+    log('error', 'comparison-file.download.failed', { error });
   }
 }
 
@@ -122,13 +122,13 @@ async function openComparison(event) {
   if (!file) return;
 
   try {
-    setStatus('Opening saved comparison…');
+    setStatus('Opening downloaded comparison…');
     const text = await file.text();
     const snapshot = file.name.toLowerCase().endsWith('.html') || /<script\s+id=["']payloaddiff-snapshot["']/i.test(text)
       ? parsePortableComparisonHtml(text)
       : parseComparisonSnapshot(text);
     await restoreSnapshot(snapshot);
-    setStatus(`Saved ${snapshot.mode.toUpperCase()} comparison restored.`);
+    setStatus(`Downloaded ${snapshot.mode.toUpperCase()} comparison restored.`);
     log('info', 'comparison-file.opened', {
       filename: file.name,
       mode: snapshot.mode,
@@ -210,7 +210,7 @@ async function waitForComparison(mode) {
     if (!busy && visible && sessionReady && sameMode) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  throw new Error('Timed out while rebuilding the saved comparison.');
+  throw new Error('Timed out while rebuilding the downloaded comparison.');
 }
 
 function frame() {
