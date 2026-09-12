@@ -69,6 +69,7 @@ function normalizeUi(ui) {
 
   return {
     views: views.map((view) => view === 'tree' ? 'tree' : 'code'),
+    theme: ui.theme === 'light' ? 'light' : 'dark',
     panelNames: normalizePanelNames(ui.panelNames),
     syncEnabled: ui.syncEnabled !== false,
     currentDiffIndex: Number.isInteger(ui.currentDiffIndex) && ui.currentDiffIndex >= 0 ? ui.currentDiffIndex : 0,
