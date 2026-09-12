@@ -4,6 +4,7 @@ import './view-surface-coordinator.js';
 import './payload-auto-detect.js';
 import './paste-buttons.js';
 import './enhancements.js';
+import './word-wrap.js';
 import './editable-default.js';
 import './sync-scroll.js';
 import './diff-nav-ui.js';
