@@ -350,6 +350,7 @@ function installStateObservers() {
     'payloaddiff:theme-changed',
     'payloaddiff:panel-name-changed',
     'payloaddiff:panel-names-restored',
+    'payloaddiff:scrollbar-state-changed',
   ];
 
   for (const type of customEvents) {
@@ -423,7 +424,21 @@ function markOperation(name) {
 
 function checkpoint(reason, level = 'debug', { onlyIfChanged = false } = {}) {
   const snapshot = captureSnapshot();
-  const signature = snapshotSignature(snapshot);
+  const signature = JSON.stringify({
+    mode: snapshot.mode,
+    theme: snapshot.theme,
+    busy: snapshot.busy,
+    compareVisible: snapshot.compareVisible,
+    diffPosition: snapshot.diffPosition,
+    panes: snapshot.panes.map((pane) => ({
+      activeView: pane.activeView,
+      chars: pane.chars,
+      lines: pane.lines,
+      scroll: pane.scroll,
+      syntaxCount: pane.syntax.count,
+      scrollbar: pane.scrollbar,
+    })),
+  });
   if (onlyIfChanged && signature === lastSnapshotSignature) return;
   lastSnapshotSignature = signature;
   const anomalies = detectAnomalies();
@@ -503,6 +518,7 @@ function captureCompactSnapshot() {
     paneLines: editors.map((editor) => countNewlinesFast(editor?.value || '')),
     syntaxIssueCounts: panes.map((_, index) => syntaxIssues(index).length),
     scrollTops: panes.map((_, index) => round(visibleScroller(index)?.scrollTop || 0)),
+    scrollbars: panes.map((_, index) => scrollbarState(index)),
   };
 }
 
@@ -538,6 +554,7 @@ function capturePane(index) {
       clientHeight: round(scroller?.clientHeight || 0),
       clientWidth: round(scroller?.clientWidth || 0),
     },
+    scrollbar: scrollbarState(index),
     panelNameLength: panelHeading?.textContent?.trim().length || 0,
     search: {
       queryLength: search?.value.length || 0,
@@ -566,6 +583,24 @@ function capturePane(index) {
       selectedRows: pane?.querySelectorAll('.tree-row.selected, .tree-row.tree-diff-current, .tree-row.search-hit').length || 0,
     },
     layers,
+  };
+}
+
+function scrollbarState(index) {
+  try {
+    const state = window.PayloadDiffScrollbars?.getPaneState?.(index);
+    if (state && typeof state === 'object') return { ...state };
+  } catch (_) {}
+  const pane = panes[index];
+  const rail = pane?.querySelector('.pd-scrollbar-rail');
+  const thumb = pane?.querySelector('.pd-scrollbar-thumb');
+  return {
+    pane: index + 1,
+    theme: document.documentElement.dataset.theme || 'dark',
+    surface: activeView(index),
+    visible: isVisible(rail),
+    trackHeight: round(rail?.clientHeight || 0),
+    thumbHeight: round(thumb?.offsetHeight || 0),
   };
 }
 
@@ -669,6 +704,8 @@ function detectAnomalies() {
     const editorState = captureElementState(editor);
     const treeState = captureElementState(pane.querySelector('.tree-view'));
     const overlayState = captureElementState(pane.querySelector('.editor-diff-overlay'));
+    const scroller = visibleScroller(index);
+    const scrollbar = scrollbarState(index);
 
     if (view === 'code' && !editorState.visible) {
       anomalies.push({ code: 'CODE_SELECTED_EDITOR_HIDDEN', pane: index + 1 });
@@ -700,6 +737,19 @@ function detectAnomalies() {
     }
     if (pane.classList.contains('tree-surface-active') && pane.classList.contains('code-surface-active')) {
       anomalies.push({ code: 'BOTH_SURFACES_ACTIVE', pane: index + 1 });
+    }
+    if (scroller && scroller.scrollHeight - scroller.clientHeight > 2 && scrollbar.visible === false) {
+      anomalies.push({
+        code: 'SCROLLABLE_SURFACE_WITHOUT_VISIBLE_SCROLLBAR',
+        pane: index + 1,
+        surface: scrollbar.surface,
+        scrollHeight: round(scroller.scrollHeight),
+        clientHeight: round(scroller.clientHeight),
+        theme: scrollbar.theme,
+      });
+    }
+    if (scrollbar.visible && scrollbar.trackHeight > 0 && scrollbar.thumbHeight <= 0) {
+      anomalies.push({ code: 'VISIBLE_SCROLLBAR_WITHOUT_THUMB', pane: index + 1, surface: scrollbar.surface });
     }
   }
 
@@ -749,6 +799,8 @@ function layerSelectors() {
     foldGutter: '.code-fold-gutter',
     syntaxLines: '.syntax-line-layer',
     syntaxRail: '.syntax-error-rail',
+    scrollbarRail: '.pd-scrollbar-rail',
+    scrollbarThumb: '.pd-scrollbar-thumb',
   };
 }
 
@@ -779,6 +831,22 @@ function summarizeCustomEvent(type, detail) {
     return {
       paneIndex: numberOrNull(source.paneIndex),
       issueCount: Array.isArray(source.issues) ? source.issues.length : numberOrNull(source.count),
+    };
+  }
+  if (type === 'payloaddiff:scrollbar-state-changed') {
+    return {
+      pane: numberOrNull(source.pane),
+      theme: source.theme || null,
+      surface: source.surface || null,
+      visible: source.visible === true,
+      scrollTop: numberOrNull(source.scrollTop),
+      maxScroll: numberOrNull(source.maxScroll),
+      scrollHeight: numberOrNull(source.scrollHeight),
+      clientHeight: numberOrNull(source.clientHeight),
+      trackHeight: numberOrNull(source.trackHeight),
+      thumbHeight: numberOrNull(source.thumbHeight),
+      thumbTop: numberOrNull(source.thumbTop),
+      progress: typeof source.progress === 'number' ? source.progress : null,
     };
   }
   if (type === 'payloaddiff:panel-name-changed' || type === 'payloaddiff:panel-names-restored') {
@@ -816,6 +884,8 @@ function inferControlAction(element) {
   if (classes.includes('view-btn')) return `view-${element.dataset.view || 'unknown'}`;
   if (classes.includes('mode-btn')) return `mode-${element.dataset.mode || 'unknown'}`;
   if (classes.includes('code-fold-toggle') || classes.includes('fold-row-toggle')) return 'fold-toggle';
+  if (classes.includes('pd-scrollbar-rail')) return 'scrollbar-track';
+  if (classes.includes('pd-scrollbar-thumb')) return 'scrollbar-thumb';
   return element.tagName?.toLowerCase() || 'unknown';
 }
 
@@ -832,6 +902,7 @@ function captureScrollState(index) {
     clientWidth: round(editor?.clientWidth || 0),
     verticalProgress: ratio(editor?.scrollTop || 0, Math.max(1, (editor?.scrollHeight || 0) - (editor?.clientHeight || 0))),
     horizontalProgress: ratio(editor?.scrollLeft || 0, Math.max(1, (editor?.scrollWidth || 0) - (editor?.clientWidth || 0))),
+    scrollbar: scrollbarState(index),
   };
 }
 
@@ -862,7 +933,12 @@ function isComparisonVisible() {
 function visibleScroller(index) {
   const pane = panes[index];
   if (!pane) return null;
-  return [pane.querySelector('.tree-view'), pane.querySelector('.fold-code-view'), pane.querySelector('.editor')].find(isVisible) || null;
+  return [
+    pane.querySelector('.aligned-compare-view'),
+    pane.querySelector('.tree-view'),
+    pane.querySelector('.fold-code-view'),
+    pane.querySelector('.editor'),
+  ].find(isVisible) || null;
 }
 
 function isVisible(element) {
@@ -902,86 +978,72 @@ function exportDiagnostics() {
     currentSnapshot,
     currentAnomalies: anomalies,
     eventSummary: summarizeDiagnosticEvents(events),
-    events,
+    events: [...events],
   };
-
   const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   link.href = url;
-  link.download = `payloaddiff-diagnostics-v${DIAGNOSTICS_SCHEMA_VERSION}-${stamp}.json`;
-  document.body.appendChild(link);
+  link.download = `payloaddiff-diagnostics-v${DIAGNOSTICS_SCHEMA_VERSION}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
   link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-  log('info', 'diagnostics.exported', {
-    eventCount: events.length,
-    anomalyCount: anomalies.length,
-    reportBytesApprox: blob.size,
-  });
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function clearDiagnostics() {
   events = [];
+  try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+  try { localStorage.removeItem(LEGACY_STORAGE_KEY); } catch (_) {}
   lastAnomalySignature = '';
   lastSnapshotSignature = '';
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(LEGACY_STORAGE_KEY);
-  } catch (_) {}
   log('info', 'diagnostics.cleared', { snapshot: captureCompactSnapshot() });
 }
 
-function loadEvents() {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY) || '[]');
-    return trimDiagnosticEvents(Array.isArray(parsed) ? parsed : [], MAX_DIAGNOSTIC_EVENTS);
-  } catch {
-    return [];
-  }
-}
-
 function schedulePersist() {
-  clearTimeout(persistTimer);
-  persistTimer = setTimeout(persistNow, 250);
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = 0;
+    persistNow();
+  }, 800);
 }
 
 function persistNow() {
-  clearTimeout(persistTimer);
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
-  } catch (_) {
-    // localStorage commonly caps near 5 MB. Keep the richest recent history
-    // rather than allowing diagnostics persistence to interfere with the app.
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(trimDiagnosticEvents(events)));
+  } catch {
     try {
-      const recent = events.slice(-400);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(trimDiagnosticEvents(events, 400)));
     } catch (_) {}
   }
 }
 
-function isRelevantMutation(mutation) {
-  if (mutation.type === 'childList') return true;
-  const target = mutation.target;
-  if (!(target instanceof Element)) return false;
-  return target.matches?.('.pane, .editor-wrap, .editor, .tree-view, .fold-code-view, .editor-diff-overlay, .inline-diff-layer, .syntax-line-layer, .syntax-error-rail, .view-btn, #compareBar, #statusText, #diffPosition, #compareSummary') ||
-    !!target.closest?.('.pane, #compareBar');
+function loadEvents() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    if (Array.isArray(stored)) return trimDiagnosticEvents(stored);
+  } catch (_) {}
+  try {
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) || '[]');
+    if (Array.isArray(legacy)) return trimDiagnosticEvents(legacy);
+  } catch (_) {}
+  return [];
 }
 
-function isDiagnosticShortcut(event) {
-  if (event.key === 'Escape' || event.key === 'Enter') return true;
-  if (!(event.ctrlKey || event.metaKey)) return false;
-  return ['f', 'v', 'c', 'a', 's', 'o', 'z', 'y'].includes(String(event.key || '').toLowerCase());
+function isRelevantMutation(mutation) {
+  const element = mutation.target?.nodeType === 1 ? mutation.target : mutation.target?.parentElement;
+  if (!element) return false;
+  if (element.closest?.('.editor-line-gutter-rows, .editor-indent-guides, .syntax-line-layer, .syntax-error-rail, .pd-scrollbar-rail')) return false;
+  return true;
 }
 
 function paneIndexForElement(element) {
   const pane = element?.closest?.('.pane');
-  return pane ? panes.indexOf(pane) : null;
+  if (!pane) return null;
+  const index = panes.indexOf(pane);
+  return index >= 0 ? index : null;
 }
 
 function elementIdentity(element) {
-  if (!(element instanceof Element)) return null;
+  if (!element || element.nodeType !== 1) return null;
   return {
     tag: element.tagName.toLowerCase(),
     id: element.id || null,
@@ -992,81 +1054,13 @@ function elementIdentity(element) {
   };
 }
 
-function captureViewport() {
-  return {
-    width: innerWidth,
-    height: innerHeight,
-    dpr: devicePixelRatio,
-    scrollX: round(scrollX),
-    scrollY: round(scrollY),
-    visualViewport: globalThis.visualViewport ? {
-      width: round(visualViewport.width),
-      height: round(visualViewport.height),
-      offsetLeft: round(visualViewport.offsetLeft),
-      offsetTop: round(visualViewport.offsetTop),
-      scale: round(visualViewport.scale, 3),
-    } : null,
-  };
-}
-
-function captureMemory() {
-  const memory = performance.memory;
-  return memory ? {
-    usedJsHeapSize: memory.usedJSHeapSize || 0,
-    totalJsHeapSize: memory.totalJSHeapSize || 0,
-    jsHeapSizeLimit: memory.jsHeapSizeLimit || 0,
-  } : null;
-}
-
-function rectSummary(rect) {
-  if (!rect) return null;
-  return {
-    x: round(rect.x || 0),
-    y: round(rect.y || 0),
-    width: round(rect.width || 0),
-    height: round(rect.height || 0),
-    top: round(rect.top || 0),
-    right: round(rect.right || 0),
-    bottom: round(rect.bottom || 0),
-    left: round(rect.left || 0),
-  };
-}
-
-function snapshotSignature(snapshot) {
-  return JSON.stringify({
-    mode: snapshot.mode,
-    theme: snapshot.theme,
-    busy: snapshot.busy,
-    compareVisible: snapshot.compareVisible,
-    diffPosition: snapshot.diffPosition,
-    status: snapshot.status,
-    panes: snapshot.panes.map((pane) => ({
-      activeView: pane.activeView,
-      chars: pane.chars,
-      lines: pane.lines,
-      syntax: pane.syntax.count,
-      scrollTop: pane.scroll.top,
-      layers: Object.fromEntries(Object.entries(pane.layers).map(([key, value]) => [key, value.visible])),
-    })),
-  });
-}
-
-function numericZ(value) {
-  const number = Number.parseInt(value, 10);
-  return Number.isFinite(number) ? number : 0;
-}
-
-function isTransparentColor(value) {
-  const normalized = String(value || '').replace(/\s+/g, '').toLowerCase();
-  return !normalized || normalized === 'transparent' || normalized === 'rgba(0,0,0,0)' || normalized.endsWith(',0)');
-}
-
-function safeCall(callback, fallback) {
+function fileNameOnly(value) {
+  if (!value) return '';
   try {
-    const value = callback();
-    return value == null ? fallback : value;
+    const parsed = new URL(value, location.href);
+    return parsed.pathname.split('/').pop() || '';
   } catch {
-    return fallback;
+    return String(value).split('/').pop() || '';
   }
 }
 
@@ -1075,23 +1069,15 @@ function safeHost(value) {
   try { return new URL(value, location.href).host; } catch { return ''; }
 }
 
-function fileNameOnly(value) {
-  if (!value) return '';
-  try {
-    const url = new URL(value, location.href);
-    return url.pathname.split('/').pop() || url.pathname;
-  } catch {
-    return String(value).split('/').pop() || '';
-  }
-}
-
 function fileExtension(name) {
-  const match = String(name || '').toLowerCase().match(/(\.[a-z0-9]{1,10})$/);
-  return match ? match[1] : '';
+  const match = String(name || '').toLowerCase().match(/(\.[a-z0-9]{1,8})$/);
+  return match?.[1] || '';
 }
 
-function matchMediaSafe(query) {
-  try { return matchMedia(query).matches; } catch { return null; }
+function isDiagnosticShortcut(event) {
+  if (!(event.ctrlKey || event.metaKey || event.altKey)) return false;
+  const key = String(event.key || '').toLowerCase();
+  return ['f', 'g', 'enter', 'escape', 'arrowup', 'arrowdown', 'home', 'end', 'pageup', 'pagedown'].includes(key);
 }
 
 function parseCount(value) {
@@ -1104,13 +1090,78 @@ function numberOrNull(value) {
   return Number.isFinite(number) ? number : null;
 }
 
-function ratio(value, max) {
-  return round(Math.max(0, Math.min(1, value / max)), 4);
+function safeCall(callback, fallback) {
+  try {
+    const value = callback();
+    return value == null ? fallback : value;
+  } catch {
+    return fallback;
+  }
 }
 
-function round(value, digits = 1) {
+function numericZ(value) {
+  if (value === 'auto' || value == null || value === '') return 0;
   const number = Number(value);
-  if (!Number.isFinite(number)) return 0;
+  return Number.isFinite(number) ? number : 0;
+}
+
+function isTransparentColor(value) {
+  const text = String(value || '').replace(/\s+/g, '').toLowerCase();
+  return !text || text === 'transparent' || text === 'rgba(0,0,0,0)' || text.endsWith(',0)');
+}
+
+function ratio(value, total) {
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return 0;
+  return Math.round(Math.min(1, Math.max(0, value / total)) * 1000) / 1000;
+}
+
+function round(value, digits = 2) {
   const factor = 10 ** digits;
-  return Math.round(number * factor) / factor;
+  return Math.round((Number(value) || 0) * factor) / factor;
+}
+
+function rectSummary(rect) {
+  if (!rect) return null;
+  return {
+    x: round(rect.x),
+    y: round(rect.y),
+    width: round(rect.width),
+    height: round(rect.height),
+    top: round(rect.top),
+    right: round(rect.right),
+    bottom: round(rect.bottom),
+    left: round(rect.left),
+  };
+}
+
+function captureViewport() {
+  const vv = window.visualViewport;
+  return {
+    width: round(innerWidth),
+    height: round(innerHeight),
+    dpr: devicePixelRatio || 1,
+    scrollX: round(scrollX),
+    scrollY: round(scrollY),
+    visualViewport: vv ? {
+      width: round(vv.width),
+      height: round(vv.height),
+      offsetLeft: round(vv.offsetLeft),
+      offsetTop: round(vv.offsetTop),
+      scale: round(vv.scale, 3),
+    } : null,
+  };
+}
+
+function captureMemory() {
+  const memory = performance.memory;
+  if (!memory) return null;
+  return {
+    usedJsHeapSize: memory.usedJSHeapSize,
+    totalJsHeapSize: memory.totalJSHeapSize,
+    jsHeapSizeLimit: memory.jsHeapSizeLimit,
+  };
+}
+
+function matchMediaSafe(query) {
+  try { return matchMedia(query).matches; } catch { return false; }
 }
