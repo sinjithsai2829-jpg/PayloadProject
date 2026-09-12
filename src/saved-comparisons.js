@@ -65,6 +65,7 @@ function scrollState(element) {
 function captureUiState() {
   return {
     views: [activeView(0), activeView(1)],
+    theme: window.PayloadDiffTheme?.get?.() || 'dark',
     panelNames: window.PayloadDiffPanelNames?.get?.() || ['File 1', 'File 2'],
     syncEnabled: syncInput?.checked ?? true,
     currentDiffIndex: window.PayloadDiffCompareSession?.getCurrentDiffIndex?.() ?? 0,
@@ -105,6 +106,7 @@ function downloadComparison() {
       filename,
       htmlChars: html.length,
       mode: snapshot.mode,
+      theme: snapshot.ui.theme,
       panelNames: snapshot.ui.panelNames,
       foldedRanges: snapshot.ui.foldedRanges,
       chars: [snapshot.payloads.left.length, snapshot.payloads.right.length],
@@ -132,6 +134,7 @@ async function openComparison(event) {
     log('info', 'comparison-file.opened', {
       filename: file.name,
       mode: snapshot.mode,
+      theme: snapshot.ui.theme,
       panelNames: snapshot.ui.panelNames,
       foldedRanges: snapshot.ui.foldedRanges,
       chars: [snapshot.payloads.left.length, snapshot.payloads.right.length],
@@ -148,6 +151,7 @@ async function restoreSnapshot(snapshot) {
   if (modeBtn && !modeBtn.classList.contains('active')) modeBtn.click();
   await frame();
 
+  window.PayloadDiffTheme?.set?.(snapshot.ui.theme || 'dark');
   window.PayloadDiffPanelNames?.set?.(snapshot.ui.panelNames || ['File 1', 'File 2']);
 
   for (let index = 0; index < 2; index += 1) {
