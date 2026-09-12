@@ -2,6 +2,7 @@ import { comparePayloads } from './core.js';
 import { searchJsonTree } from './search.js';
 import { formatJsonBestEffort, formatXmlBestEffort } from './resilient-format.js';
 import { detectPayloadIssues } from './syntax-issues.js';
+import { compareTextPayloads } from './text-fallback-diff.js';
 
 const jsonCache = new Map();
 
@@ -60,20 +61,50 @@ function compareWithRecovery(payload) {
     const left = formatXmlBestEffort(payload.left);
     const right = formatXmlBestEffort(payload.right);
     if (!left.valid || !right.valid) {
-      throw new Error('XML was formatted for readability, but structural comparison requires valid XML on both sides.');
+      return compareTextPayloads({
+        mode: 'xml',
+        left: left.formatted,
+        right: right.formatted,
+        reason: structuralReason('XML', left, right),
+      });
     }
-    return comparePayloads({ mode: 'xml', left: left.formatted, right: right.formatted });
+    return {
+      ...comparePayloads({ mode: 'xml', left: left.formatted, right: right.formatted }),
+      comparisonKind: 'structural',
+      fallback: false,
+    };
   }
 
   const left = formatJsonBestEffort(payload.left);
   const right = formatJsonBestEffort(payload.right);
   if (left.parsed == null || right.parsed == null) {
-    throw new Error('JSON was formatted for readability, but structural comparison requires recoverable JSON on both sides.');
+    return compareTextPayloads({
+      mode: 'json',
+      left: left.formatted,
+      right: right.formatted,
+      reason: structuralReason('JSON', left, right),
+    });
   }
 
-  return comparePayloads({
-    mode: 'json',
-    left: JSON.stringify(left.parsed),
-    right: JSON.stringify(right.parsed),
-  });
+  return {
+    ...comparePayloads({
+      mode: 'json',
+      left: JSON.stringify(left.parsed),
+      right: JSON.stringify(right.parsed),
+    }),
+    comparisonKind: 'structural',
+    fallback: false,
+  };
+}
+
+function structuralReason(label, left, right) {
+  const issues = [];
+  if (label === 'JSON') {
+    if (left.parsed == null) issues.push(`File 1: ${left.warning || 'invalid JSON'}`);
+    if (right.parsed == null) issues.push(`File 2: ${right.warning || 'invalid JSON'}`);
+  } else {
+    if (!left.valid) issues.push(`File 1: ${left.warning || 'invalid XML'}`);
+    if (!right.valid) issues.push(`File 2: ${right.warning || 'invalid XML'}`);
+  }
+  return `${label} structural parsing unavailable. ${issues.join(' · ')}`.trim();
 }
