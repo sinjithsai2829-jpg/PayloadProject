@@ -1,4 +1,5 @@
 import './main.js';
+import './view-surface-coordinator.js';
 import './payload-auto-detect.js';
 import './paste-buttons.js';
 import './enhancements.js';
