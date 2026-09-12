@@ -2,8 +2,16 @@ const panes = [...document.querySelectorAll('.pane')];
 const editors = [document.querySelector('#editor0'), document.querySelector('#editor1')];
 const smartSurfaces = panes.map((pane) => pane?.querySelector('.smart-wrap-view'));
 const locks = [false, false];
+const directions = [null, null];
+const epochs = [0, 0];
 
 for (let index = 0; index < panes.length; index += 1) install(index);
+
+window.PayloadDiffSmartWrapScrollBridge = {
+  isSyncingFromSmart: (index) => directions[index] === 'smart-to-editor',
+  isSyncingFromEditor: (index) => directions[index] === 'editor-to-smart',
+  getDirection: (index) => directions[index] || null,
+};
 
 window.addEventListener('payloaddiff:smart-wrap-layout', (event) => {
   const index = Number(event.detail?.paneIndex);
@@ -35,12 +43,9 @@ function syncFromEditor(index) {
   if (!editor || !surface || !isSmartActive(index) || locks[index]) return;
   const editorMax = Math.max(1, editor.scrollHeight - editor.clientHeight);
   const smartMax = Math.max(0, surface.scrollHeight - surface.clientHeight);
-  locks[index] = true;
-  surface.scrollTop = smartMax * Math.min(1, Math.max(0, editor.scrollTop / editorMax));
-  requestAnimationFrame(() => {
-    locks[index] = false;
-    window.PayloadDiffScrollbars?.refresh?.(index);
-  });
+  beginBridge(index, 'editor-to-smart');
+  surface.scrollTop = smartMax * clampRatio(editor.scrollTop / editorMax);
+  releaseBridge(index);
 }
 
 function syncFromSmart(index) {
@@ -49,12 +54,35 @@ function syncFromSmart(index) {
   if (!editor || !surface || !isSmartActive(index) || locks[index]) return;
   const smartMax = Math.max(1, surface.scrollHeight - surface.clientHeight);
   const editorMax = Math.max(0, editor.scrollHeight - editor.clientHeight);
+  beginBridge(index, 'smart-to-editor');
+
+  // Keep the underlying textarea near the same proportional position so
+  // turning Wrap off does not jump somewhere unrelated. Smart Wrap remains the
+  // authoritative visible scroller; smart-wrap-view explicitly ignores this
+  // bridge-originated textarea scroll event so it cannot feed back and snap the
+  // user to a logical-line boundary or the end of a huge wrapped line.
+  editor.scrollTop = editorMax * clampRatio(surface.scrollTop / smartMax);
+  releaseBridge(index);
+}
+
+function beginBridge(index, direction) {
+  epochs[index] += 1;
   locks[index] = true;
-  editor.scrollTop = editorMax * Math.min(1, Math.max(0, surface.scrollTop / smartMax));
+  directions[index] = direction;
+}
+
+function releaseBridge(index) {
+  const epoch = epochs[index];
   requestAnimationFrame(() => {
+    if (epochs[index] !== epoch) return;
     locks[index] = false;
+    directions[index] = null;
     window.PayloadDiffScrollbars?.refresh?.(index);
   });
+}
+
+function clampRatio(value) {
+  return Math.min(1, Math.max(0, Number(value) || 0));
 }
 
 function isSmartActive(index) {
