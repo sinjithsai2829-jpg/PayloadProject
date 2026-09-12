@@ -104,13 +104,9 @@ export function installPayloadActionModeGuard(root = document) {
       return;
     }
 
-    const modeButton = root.querySelector?.(`.mode-btn[data-mode="${result.mode}"]`);
-    if (!modeButton) return;
-
-    // Switch through the existing mode control so every feature that listens to
-    // a normal JSON/XML mode change stays synchronized. This happens during the
-    // capture phase, before the core Format/Compare click handler runs.
-    modeButton.click();
+    const switched = window.PayloadDiffAutoDetect?.switchMode?.(result.mode)
+      ?? fallbackSwitchMode(root, result.mode);
+    if (!switched || activeMode(root) !== result.mode) return;
 
     logDiagnostic('info', 'payload.action-mode-detected', {
       action,
@@ -119,6 +115,13 @@ export function installPayloadActionModeGuard(root = document) {
       detections: diagnosticDetections(result.detections),
     });
   }
+}
+
+function fallbackSwitchMode(root, mode) {
+  const modeButton = root.querySelector?.(`.mode-btn[data-mode="${mode}"]`);
+  if (!modeButton) return false;
+  modeButton.click();
+  return activeMode(root) === mode;
 }
 
 function activeMode(root) {
