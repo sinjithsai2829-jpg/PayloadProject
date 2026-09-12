@@ -82,11 +82,18 @@ function downloadComparison() {
   }
 
   try {
+    const comparison = window.PayloadDiffCompareSession?.getResult?.();
+    if (!comparison) {
+      setStatus('Comparison is still updating. Wait a moment and download again.', true);
+      return;
+    }
+
     const snapshot = createComparisonSnapshot({
       mode: currentMode(),
       left: editors[0]?.value || '',
       right: editors[1]?.value || '',
       ui: captureUiState(),
+      comparison,
     });
     const html = createPortableComparisonHtml(snapshot);
     const filename = portableComparisonDownloadName();
@@ -111,6 +118,8 @@ function downloadComparison() {
       foldedRanges: snapshot.ui.foldedRanges,
       chars: [snapshot.payloads.left.length, snapshot.payloads.right.length],
       currentDiffIndex: snapshot.ui.currentDiffIndex,
+      comparisonKind: snapshot.comparison?.comparisonKind || 'structural',
+      diffCount: snapshot.comparison?.diffs?.length || 0,
     });
   } catch (error) {
     setStatus(error.message || 'Unable to download comparison.', true);
