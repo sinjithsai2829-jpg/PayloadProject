@@ -1,6 +1,7 @@
 const editors = [document.querySelector('#editor0'), document.querySelector('#editor1')];
 const panes = [...document.querySelectorAll('.pane')];
 const syncInput = document.querySelector('.enhancement-sync input[type="checkbox"]');
+const STORAGE_KEY = 'payloaddiff:word-wrap:v1';
 
 const state = editors.map(() => ({
   enabled: false,
@@ -18,6 +19,9 @@ const state = editors.map(() => ({
   rebuildTimer: 0,
 }));
 const buttons = [];
+const wrapDiffLayers = [];
+const wrapSyntaxLayers = [];
+const renderFrames = [0, 0];
 let mirrorLock = false;
 
 installStyles();
@@ -38,10 +42,14 @@ window.PayloadDiffWordWrap = {
   getSegmentRects: (index, line, start, end) => getSegmentRects(index, line, start, end),
 };
 
+restorePreference();
+installGlobalHooks();
+
 function installPane(index) {
   const editor = editors[index];
   const pane = panes[index];
-  if (!editor || !pane) return;
+  const wrap = editor?.closest('.editor-wrap');
+  if (!editor || !pane || !wrap) return;
 
   const tools = pane.querySelector('.pane-tools');
   const tabs = pane.querySelector('.view-tabs');
@@ -57,6 +65,18 @@ function installPane(index) {
   if (tools && tabs) tabs.insertAdjacentElement('afterend', button);
   else tabs?.parentNode?.insertBefore(button, tabs.nextSibling);
 
+  const diffLayer = document.createElement('div');
+  diffLayer.className = 'wrap-diff-layer hidden';
+  diffLayer.setAttribute('aria-hidden', 'true');
+  wrap.appendChild(diffLayer);
+  wrapDiffLayers[index] = diffLayer;
+
+  const syntaxLayer = document.createElement('div');
+  syntaxLayer.className = 'wrap-syntax-layer hidden';
+  syntaxLayer.setAttribute('aria-hidden', 'true');
+  wrap.appendChild(syntaxLayer);
+  wrapSyntaxLayers[index] = syntaxLayer;
+
   button.addEventListener('click', () => {
     setEnabled(index, !state[index].enabled, { mirror: true, notify: true, source: 'button' });
   });
@@ -64,9 +84,13 @@ function installPane(index) {
   editor.addEventListener('input', () => scheduleRebuild(index, 70));
   editor.addEventListener('scroll', () => {
     if (state[index].enabled && editor.scrollLeft !== 0) editor.scrollLeft = 0;
+    scheduleRender(index);
   }, { passive: true });
 
-  pane.querySelector('.view-tabs')?.addEventListener('click', () => requestAnimationFrame(() => updateButtonVisibility(index)));
+  pane.querySelector('.view-tabs')?.addEventListener('click', () => requestAnimationFrame(() => {
+    updateButtonVisibility(index);
+    scheduleRender(index);
+  }));
 
   if (typeof ResizeObserver !== 'undefined') {
     const observer = new ResizeObserver(() => scheduleRebuild(index, 90));
@@ -80,37 +104,53 @@ function installPane(index) {
   updateButtonVisibility(index);
 }
 
+function installGlobalHooks() {
+  window.addEventListener('payloaddiff:live-compare-updated', () => scheduleAllRender());
+  window.addEventListener('payloaddiff:comparison-reset', () => scheduleAllRender());
+  window.addEventListener('payloaddiff:syntax-issues-updated', (event) => {
+    const index = Number(event.detail?.paneIndex);
+    if (Number.isInteger(index)) scheduleRender(index);
+  });
+  window.addEventListener('payloaddiff:word-wrap-layout', (event) => {
+    const index = Number(event.detail?.paneIndex);
+    if (Number.isInteger(index)) scheduleRender(index);
+  });
+
+  // The live compare module still uses fixed-height line math internally. After
+  // a navigator click, correct the final scroll position using wrapped-row
+  // metrics so the selected difference lands in the visible center.
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest?.('#firstDiff, #prevDiff, #nextDiff, #lastDiff');
+    if (!button) return;
+    requestAnimationFrame(() => requestAnimationFrame(correctNavigatorScroll));
+  }, true);
+}
+
 function setPair(value, { notify = true } = {}) {
   const pair = Array.isArray(value) ? value : [!!value, !!value];
   for (let index = 0; index < state.length; index += 1) {
     setEnabled(index, !!pair[index], { mirror: false, notify: false, source: 'restore' });
   }
+  persistPreference();
   if (notify) dispatchChanged(null, 'restore');
 }
 
 function setEnabled(index, enabled, { mirror = false, notify = true, source = 'api' } = {}) {
   const item = state[index];
   const editor = editors[index];
-  if (!item || !editor) return;
+  const pane = panes[index];
+  if (!item || !editor || !pane) return;
   const next = !!enabled;
-  if (item.enabled === next) {
-    rebuild(index, true);
-    updateButton(index);
-    return;
-  }
 
   item.enabled = next;
   editor.wrap = next ? 'soft' : 'off';
   editor.setAttribute('wrap', next ? 'soft' : 'off');
   editor.classList.toggle('word-wrap-enabled', next);
+  pane.classList.toggle('word-wrap-active', next);
   if (next) editor.scrollLeft = 0;
   rebuild(index, true);
   updateButton(index);
-
-  // Wrapped textarea rows no longer match the fixed-height folded projection.
-  // Keep the user's fold state intact, but show the normal editor while wrap is
-  // enabled. code-folding.js restores the folded surface when wrap is disabled.
-  window.PayloadDiffCodeFolding?.refresh?.();
+  scheduleRender(index);
 
   if (mirror && syncInput?.checked && !mirrorLock) {
     mirrorLock = true;
@@ -119,6 +159,7 @@ function setEnabled(index, enabled, { mirror = false, notify = true, source = 'a
     mirrorLock = false;
   }
 
+  persistPreference();
   if (notify) dispatchChanged(index, source);
 }
 
@@ -130,9 +171,18 @@ function dispatchChanged(index, source) {
     source,
   };
   window.dispatchEvent(new CustomEvent('payloaddiff:word-wrap-changed', { detail }));
+  try { window.PayloadDiffDiagnostics?.log?.('info', 'word-wrap.changed', detail); } catch (_) {}
+}
+
+function restorePreference() {
   try {
-    window.PayloadDiffDiagnostics?.log?.('info', 'word-wrap.changed', detail);
+    const stored = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null');
+    if (Array.isArray(stored)) setPair(stored, { notify: false });
   } catch (_) {}
+}
+
+function persistPreference() {
+  try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state.map((item) => !!item.enabled))); } catch (_) {}
 }
 
 function updateButton(index) {
@@ -181,9 +231,7 @@ function rebuild(index, force = false) {
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
     visualRowStarts[lineIndex] = rowCursor;
     const columns = item.enabled ? visualColumns(lines[lineIndex], tabSize) : 1;
-    const rows = item.enabled
-      ? Math.max(1, Math.ceil(Math.max(1, columns) / columnsPerRow))
-      : 1;
+    const rows = item.enabled ? Math.max(1, Math.ceil(Math.max(1, columns) / columnsPerRow)) : 1;
     visualRows[lineIndex] = rows;
     rowCursor += rows;
   }
@@ -309,6 +357,97 @@ function getSegmentRects(index, line, start, end) {
   return rects;
 }
 
+function scheduleAllRender() {
+  scheduleRender(0);
+  scheduleRender(1);
+}
+
+function scheduleRender(index) {
+  if (renderFrames[index]) return;
+  renderFrames[index] = requestAnimationFrame(() => {
+    renderFrames[index] = 0;
+    renderWrapDiffs(index);
+    renderWrapSyntax(index);
+  });
+}
+
+function renderWrapDiffs(index) {
+  const pane = panes[index];
+  const editor = editors[index];
+  const layer = wrapDiffLayers[index];
+  if (!pane || !editor || !layer) return;
+  const treeActive = pane.querySelector('.view-btn[data-view="tree"]')?.classList.contains('active');
+  const result = window.PayloadDiffCompareSession?.getResult?.();
+  const enabled = state[index].enabled && !treeActive && !!result && window.PayloadDiffCompareSession?.isActive?.();
+  layer.classList.toggle('hidden', !enabled);
+  layer.replaceChildren();
+  if (!enabled) return;
+
+  const range = getVisibleLineRange(index, 4);
+  const current = window.PayloadDiffCompareSession?.getCurrentDiffIndex?.() ?? -1;
+  const fragment = document.createDocumentFragment();
+  const diffs = Array.isArray(result.diffs) ? result.diffs : [];
+
+  for (let diffIndex = 0; diffIndex < diffs.length; diffIndex += 1) {
+    const diff = diffs[diffIndex];
+    const line = index === 0 ? diff.leftLine : diff.rightLine;
+    if (!line || line < range.first || line > range.last) continue;
+    if (diff.type === 'added' && index === 0) continue;
+    if (diff.type === 'removed' && index === 1) continue;
+    const type = diff.type === 'added' || diff.type === 'removed' ? diff.type : 'modified';
+    const metrics = getLineMetrics(index, line);
+    const band = document.createElement('div');
+    band.className = `wrap-diff-band ${type}${diffIndex === current ? ' current' : ''}`;
+    band.style.top = `${metrics.top - editor.scrollTop}px`;
+    band.style.height = `${metrics.height}px`;
+    fragment.appendChild(band);
+  }
+  layer.appendChild(fragment);
+}
+
+function renderWrapSyntax(index) {
+  const pane = panes[index];
+  const editor = editors[index];
+  const layer = wrapSyntaxLayers[index];
+  if (!pane || !editor || !layer) return;
+  const treeActive = pane.querySelector('.view-btn[data-view="tree"]')?.classList.contains('active');
+  const issues = window.PayloadDiffSyntaxIssues?.getIssues?.(index) || [];
+  const enabled = state[index].enabled && !treeActive && issues.length > 0;
+  layer.classList.toggle('hidden', !enabled);
+  layer.replaceChildren();
+  if (!enabled) return;
+
+  const range = getVisibleLineRange(index, 4);
+  const fragment = document.createDocumentFragment();
+  const seen = new Set();
+  for (const issue of issues) {
+    if (!issue?.line || issue.line < range.first || issue.line > range.last || seen.has(issue.line)) continue;
+    seen.add(issue.line);
+    const metrics = getLineMetrics(index, issue.line);
+    const band = document.createElement('div');
+    band.className = 'wrap-syntax-band';
+    band.style.top = `${metrics.top - editor.scrollTop}px`;
+    band.style.height = `${metrics.height}px`;
+    fragment.appendChild(band);
+  }
+  layer.appendChild(fragment);
+}
+
+function correctNavigatorScroll() {
+  const result = window.PayloadDiffCompareSession?.getResult?.();
+  const index = window.PayloadDiffCompareSession?.getCurrentDiffIndex?.();
+  if (!result || !Number.isInteger(index)) return;
+  const diff = result.diffs?.[index];
+  if (!diff) return;
+  for (let paneIndex = 0; paneIndex < editors.length; paneIndex += 1) {
+    if (!state[paneIndex].enabled) continue;
+    const line = paneIndex === 0 ? (diff.leftLine || diff.rightLine) : (diff.rightLine || diff.leftLine);
+    if (!line) continue;
+    editors[paneIndex].scrollTop = scrollTopForLine(paneIndex, line, 0.42);
+    scheduleRender(paneIndex);
+  }
+}
+
 function visualColumns(text, tabSize) {
   let columns = 0;
   for (const char of String(text || '')) {
@@ -348,6 +487,40 @@ function installStyles() {
       overflow-wrap: anywhere;
       word-break: break-all;
       overflow-x: hidden;
+    }
+    .word-wrap-active .editor-diff-overlay,
+    .word-wrap-active .inline-diff-layer,
+    .word-wrap-active .syntax-line-layer,
+    .word-wrap-active .code-fold-gutter,
+    .word-wrap-active .fold-code-view {
+      display: none !important;
+    }
+    .wrap-diff-layer,
+    .wrap-syntax-layer {
+      position: absolute;
+      inset: 0 14px 0 64px;
+      overflow: hidden;
+      pointer-events: none;
+    }
+    .wrap-diff-layer { z-index: 3; }
+    .wrap-syntax-layer { z-index: 7; }
+    .wrap-diff-band,
+    .wrap-syntax-band {
+      position: absolute;
+      left: 0;
+      right: 0;
+      pointer-events: none;
+    }
+    .wrap-diff-band.modified { background: rgba(245,158,11,.18); border-left: 4px solid #f59e0b; }
+    .wrap-diff-band.added { background: rgba(34,197,94,.16); border-left: 4px solid #22c55e; }
+    .wrap-diff-band.removed { background: rgba(239,68,68,.16); border-left: 4px solid #ef4444; }
+    .wrap-diff-band.current { outline: 2px solid rgba(96,165,250,.95); outline-offset: -2px; }
+    .wrap-syntax-band { background: rgba(239,68,68,.08); border-left: 3px solid #ef4444; }
+    [data-theme="light"] .word-wrap-toggle.active,
+    [data-theme="light"] .word-wrap-toggle[aria-pressed="true"] {
+      background: #dbeafe;
+      color: #1e3a8a;
+      border-color: #60a5fa;
     }
   `;
   document.head.appendChild(style);
