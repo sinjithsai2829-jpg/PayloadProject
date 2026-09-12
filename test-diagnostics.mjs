@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
+  DIAGNOSTICS_SCHEMA_VERSION,
   MAX_DIAGNOSTIC_EVENTS,
   createDiagnosticEvent,
   sanitizeDiagnosticString,
   sanitizeDiagnosticValue,
+  summarizeDiagnosticEvents,
   trimDiagnosticEvents,
 } from './src/diagnostics-core.js';
 
@@ -20,12 +23,22 @@ assert.equal(sanitizedXml.includes('secret'), false);
 
 const nested = sanitizeDiagnosticValue({
   payload: jsonPayload,
+  payloads: { left: jsonPayload, right: jsonPayload },
   content: xmlPayload,
+  query: 'sensitive customer search',
+  searchText: 'another private query',
+  selectionText: 'private selected value',
+  clipboard: 'private clipboard value',
   message: 'Invalid JSON at line 12 column 4',
   chars: 12345,
 });
 assert.equal(nested.payload, '[redacted]');
+assert.equal(nested.payloads, '[redacted]');
 assert.equal(nested.content, '[redacted]');
+assert.equal(nested.query, '[redacted]');
+assert.equal(nested.searchText, '[redacted]');
+assert.equal(nested.selectionText, '[redacted]');
+assert.equal(nested.clipboard, '[redacted]');
 assert.equal(nested.message, 'Invalid JSON at line 12 column 4');
 assert.equal(nested.chars, 12345);
 
@@ -46,5 +59,45 @@ const trimmed = trimDiagnosticEvents(many);
 assert.equal(trimmed.length, MAX_DIAGNOSTIC_EVENTS);
 assert.equal(trimmed[0].i, 50);
 
-console.log('PASS: diagnostics redact payload content and retain useful metadata.');
-console.log(`PASS: diagnostics history is capped at ${MAX_DIAGNOSTIC_EVENTS} events.`);
+const summary = summarizeDiagnosticEvents([
+  { level: 'info', type: 'compare.click.started' },
+  { level: 'warn', type: 'ui.anomaly-detected' },
+  { level: 'warn', type: 'ui.anomaly-detected' },
+]);
+assert.equal(summary.total, 3);
+assert.equal(summary.levels.info, 1);
+assert.equal(summary.levels.warn, 2);
+assert.equal(summary.types['ui.anomaly-detected'], 2);
+assert.ok(DIAGNOSTICS_SCHEMA_VERSION >= 2);
+assert.ok(MAX_DIAGNOSTIC_EVENTS >= 1000, 'diagnostics should retain a long debugging timeline');
+
+const diagnosticsSource = await readFile(new URL('./src/diagnostics.js', import.meta.url), 'utf8');
+for (const requiredSignal of [
+  'captureEnvironment()',
+  'capturePane(index)',
+  'captureCompareState()',
+  'captureElementState',
+  'detectAnomalies()',
+  'OPAQUE_DIFF_OVERLAY_CAN_COVER_EDITOR',
+  'CODE_SELECTED_EDITOR_HIDDEN',
+  'TREE_SELECTED_EDITOR_VISIBLE',
+  'performance.long-task',
+  'performance.layout-shift',
+  'ui.keyboard-shortcut',
+  'editor.scrolled',
+  'event.payloaddiff',
+  'lineMapSample',
+  'diagnosticsSchemaVersion',
+]) {
+  assert.ok(diagnosticsSource.includes(requiredSignal), `rich diagnostics missing signal: ${requiredSignal}`);
+}
+
+assert.ok(diagnosticsSource.includes('queryLength'));
+assert.ok(diagnosticsSource.includes('panelNameLength'));
+assert.ok(!diagnosticsSource.includes('selectionText:'), 'diagnostics must not copy selected payload text');
+assert.ok(!diagnosticsSource.includes('searchText:'), 'diagnostics must not copy search text');
+assert.ok(!diagnosticsSource.includes('clipboardText:'), 'diagnostics must not copy clipboard text');
+
+console.log('PASS: diagnostics redact payload/search/selection/clipboard content and retain useful metadata.');
+console.log(`PASS: diagnostics history is capped at ${MAX_DIAGNOSTIC_EVENTS} rich events.`);
+console.log('PASS: diagnostics capture render layers, anomalies, interactions, comparison state, and performance signals.');
