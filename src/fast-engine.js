@@ -1,13 +1,17 @@
+import { comparableJsonPrimitiveEqual, normalizeCompareOptions } from './compare-normalization.js';
+
 export const FAST_MAX_DIFFS = 20000;
 
-export function compareJsonValues(left, right, maxDiffs = FAST_MAX_DIFFS) {
+export function compareJsonValues(left, right, maxDiffs = FAST_MAX_DIFFS, options = {}) {
+  const normalizedOptions = normalizeCompareOptions(options);
   const diffs = [];
   const summary = { added: 0, removed: 0, modified: 0, truncated: false };
-  walk(left, right, '$', diffs, summary, maxDiffs);
+  walk(left, right, '$', diffs, summary, maxDiffs, normalizedOptions);
   return {
     diffs,
     summary,
     identical: summary.added === 0 && summary.removed === 0 && summary.modified === 0,
+    compareOptions: normalizedOptions,
   };
 }
 
@@ -67,8 +71,8 @@ export function childJsonPath(parent, key, isArray = false) {
     : `${parent}[${JSON.stringify(String(key))}]`;
 }
 
-function walk(left, right, path, diffs, summary, maxDiffs) {
-  if (Object.is(left, right)) return;
+function walk(left, right, path, diffs, summary, maxDiffs, options) {
+  if (Object.is(left, right) || comparableJsonPrimitiveEqual(left, right, options)) return;
   if (diffs.length >= maxDiffs) {
     summary.truncated = true;
     return;
@@ -97,7 +101,7 @@ function walk(left, right, path, diffs, summary, maxDiffs) {
         diffs.push({ path: childPath, type: 'removed' });
         summary.removed += 1;
       } else {
-        walk(left[index], right[index], childPath, diffs, summary, maxDiffs);
+        walk(left[index], right[index], childPath, diffs, summary, maxDiffs, options);
       }
     }
     return;
@@ -119,7 +123,7 @@ function walk(left, right, path, diffs, summary, maxDiffs) {
         diffs.push({ path: childPath, type: 'removed' });
         summary.removed += 1;
       } else {
-        walk(left[key], right[key], childPath, diffs, summary, maxDiffs);
+        walk(left[key], right[key], childPath, diffs, summary, maxDiffs, options);
       }
     }
 
@@ -154,11 +158,11 @@ function visitLines(value, path, targets, found, line) {
       line.value += 1;
       return;
     }
-    line.value += 1; // opening [
+    line.value += 1;
     for (let index = 0; index < value.length; index += 1) {
       visitLines(value[index], `${path}[${index}]`, targets, found, line);
     }
-    line.value += 1; // closing ]
+    line.value += 1;
     return;
   }
 
@@ -168,11 +172,9 @@ function visitLines(value, path, targets, found, line) {
     return;
   }
 
-  line.value += 1; // opening {
-  for (const key of keys) {
-    visitLines(value[key], childJsonPath(path, key), targets, found, line);
-  }
-  line.value += 1; // closing }
+  line.value += 1;
+  for (const key of keys) visitLines(value[key], childJsonPath(path, key), targets, found, line);
+  line.value += 1;
 }
 
 function parsePathTokens(path) {
