@@ -62,6 +62,7 @@ for (const input of fileInputs) {
 window.PayloadDiffAutoDetect = {
   detect: (text, options = {}) => detectPayloadMode(text, options),
   apply: (text, options = {}) => detectAndApply(text, options),
+  switchMode: (mode) => switchModeAutomatically(mode),
 };
 
 function detectAndApply(text, options = {}) {
@@ -78,16 +79,7 @@ function detectAndApply(text, options = {}) {
   if (manualOverrideUntilEmpty && !replacementSource) return detected;
   if (replacementSource) manualOverrideUntilEmpty = false;
   if (detected.mode === current) return detected;
-
-  const button = modeButtons.find((candidate) => candidate.dataset.mode === detected.mode);
-  if (!button) return detected;
-
-  autoSwitching = true;
-  try {
-    button.click();
-  } finally {
-    autoSwitching = false;
-  }
+  if (!switchModeAutomatically(detected.mode)) return detected;
 
   if (statusText) {
     statusText.textContent = `${detected.mode.toUpperCase()} detected from ${options.source || 'payload'}.`;
@@ -105,6 +97,22 @@ function detectAndApply(text, options = {}) {
   } catch (_) {}
 
   return detected;
+}
+
+function switchModeAutomatically(mode) {
+  if (mode !== 'json' && mode !== 'xml') return false;
+  if (mode === activeMode()) return true;
+
+  const button = modeButtons.find((candidate) => candidate.dataset.mode === mode);
+  if (!button) return false;
+
+  autoSwitching = true;
+  try {
+    button.click();
+  } finally {
+    autoSwitching = false;
+  }
+  return activeMode() === mode;
 }
 
 function activeMode() {
