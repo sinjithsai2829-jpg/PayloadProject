@@ -22,6 +22,8 @@ let currentDiffIndex = 0;
 let orderedDiffs = [];
 let lastGoodSummary = null;
 let lastGoodElapsed = 0;
+let lastComparisonKind = 'structural';
+let lastFallbackReason = '';
 let invalidSides = [];
 let scrollTrackFrame = 0;
 let pendingScrollPane = 0;
@@ -38,6 +40,17 @@ window.PayloadDiffCompareSession = {
   getInvalidSides: () => invalidSides.map((item) => ({ ...item })),
   getCurrentDiffIndex: () => currentDiffIndex,
   getDiffCount: () => orderedDiffs.length,
+  getResult: () => lastGoodSummary ? {
+    mode: activeMode,
+    comparisonKind: lastComparisonKind,
+    fallback: lastComparisonKind === 'text',
+    fallbackReason: lastFallbackReason,
+    diffs: orderedDiffs.map(({ path, type, leftLine, rightLine }) => ({ path, type, leftLine, rightLine })),
+    ordered: orderedDiffs.map(({ path, type, leftLine, rightLine }) => ({ path, type, leftLine, rightLine })),
+    summary: { ...lastGoodSummary },
+    identical: lastGoodSummary.added + lastGoodSummary.removed + lastGoodSummary.modified === 0,
+    elapsedMs: lastGoodElapsed,
+  } : null,
   goToFirst: () => selectAbsoluteDiff(0),
   goToLast: () => selectAbsoluteDiff(Math.max(0, orderedDiffs.length - 1)),
 };
@@ -257,6 +270,8 @@ async function refreshLiveComparison({ preserveNavigator }) {
     orderedDiffs = result.ordered || result.diffs || [];
     lastGoodSummary = result.summary;
     lastGoodElapsed = result.elapsedMs;
+    lastComparisonKind = result.comparisonKind === 'text' || result.fallback === true ? 'text' : 'structural';
+    lastFallbackReason = typeof result.fallbackReason === 'string' ? result.fallbackReason : '';
     if (!preserveNavigator || currentDiffIndex >= orderedDiffs.length) currentDiffIndex = 0;
 
     diffsByPane[0] = buildLineTypes(orderedDiffs, 0);
@@ -269,7 +284,9 @@ async function refreshLiveComparison({ preserveNavigator }) {
     renderOverlay(0);
     renderOverlay(1);
     compareBar?.classList.remove('live-stale', 'live-invalid');
-    setLiveStatus(result.identical ? `Identical (${result.elapsedMs} ms)` : `Live comparison ${result.elapsedMs} ms`);
+    setLiveStatus(result.fallback
+      ? `${activeMode.toUpperCase()} has syntax issues — comparing as text (${result.elapsedMs} ms)`
+      : result.identical ? `Identical (${result.elapsedMs} ms)` : `Live comparison ${result.elapsedMs} ms`);
     publishCoreComparisonState(result.identical);
   } catch (error) {
     if (request !== latestRequest || !compareActive) return;
@@ -399,6 +416,9 @@ function publishCoreComparisonState(identical = null) {
       identical: identical == null ? total === 0 : identical,
       elapsedMs: lastGoodElapsed,
       currentDiffIndex,
+      comparisonKind: lastComparisonKind,
+      fallback: lastComparisonKind === 'text',
+      fallbackReason: lastFallbackReason,
     },
   }));
 }
@@ -418,34 +438,35 @@ function scrollEditorToLine(index, line) {
   if (!line) return;
   const editor = editors[index];
   if (!isVisible(editor)) return;
-  const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 20;
-  editor.scrollTop = Math.max(0, (line - 1) * lineHeight - editor.clientHeight * 0.42);
+  const computed = getComputedStyle(editor);
+  const lineHeight = parseFloat(computed.lineHeight) || 20;
+  const paddingTop = parseFloat(computed.paddingTop) || 0;
+  editor.scrollTop = Math.max(0, (line - 1) * lineHeight + paddingTop - editor.clientHeight * .42);
 }
 
-function buildLineTypes(ordered, paneIndex) {
-  const byLine = new Map();
-  for (const diff of ordered) {
+function buildLineTypes(diffs, paneIndex) {
+  const items = [];
+  for (let index = 0; index < diffs.length; index += 1) {
+    const diff = diffs[index];
     const line = paneIndex === 0 ? diff.leftLine : diff.rightLine;
     if (!line) continue;
     let type = diff.type;
     if (type === 'added' && paneIndex === 0) continue;
     if (type === 'removed' && paneIndex === 1) continue;
     if (type !== 'added' && type !== 'removed') type = 'modified';
-    byLine.set(line, type);
+    items.push({ line, type, index });
   }
-  return [...byLine.entries()].map(([line, type]) => ({ line, type })).sort((a, b) => a.line - b.line);
+  items.sort((a, b) => a.line - b.line || a.index - b.index);
+  return items;
 }
 
 function renderOverlay(index) {
   const editor = editors[index];
   const overlay = overlays[index];
-  const wrap = editor?.closest('.editor-wrap');
-  if (!editor || !overlay || !wrap) return;
-
-  const shouldShow = compareActive && !invalidSides.length && currentMode() === activeMode && isVisible(editor) && diffsByPane[index].length > 0;
-  overlay.classList.toggle('hidden', !shouldShow);
-  wrap.classList.toggle('compare-editing', shouldShow);
-  if (!shouldShow) {
+  if (!editor || !overlay) return;
+  const visible = compareActive && !invalidSides.length && currentMode() === activeMode && isVisible(editor);
+  overlay.classList.toggle('hidden', !visible);
+  if (!visible) {
     overlay.replaceChildren();
     return;
   }
@@ -453,87 +474,62 @@ function renderOverlay(index) {
   const computed = getComputedStyle(editor);
   const lineHeight = parseFloat(computed.lineHeight) || 20;
   const paddingTop = parseFloat(computed.paddingTop) || 0;
-  const firstVisible = Math.max(1, Math.floor((editor.scrollTop - paddingTop) / lineHeight) + 1);
-  const lastVisible = Math.ceil((editor.scrollTop + editor.clientHeight - paddingTop) / lineHeight) + 1;
-  const current = orderedDiffs[currentDiffIndex];
-  const currentLine = index === 0 ? current?.leftLine : current?.rightLine;
-  const entries = diffsByPane[index];
-  const start = lowerBound(entries, firstVisible - 2);
-  const frag = document.createDocumentFragment();
+  const firstLine = Math.max(1, Math.floor((editor.scrollTop - paddingTop) / lineHeight) + 1);
+  const lastLine = Math.ceil((editor.scrollTop + editor.clientHeight - paddingTop) / lineHeight) + 1;
+  const fragment = document.createDocumentFragment();
 
-  for (let i = start; i < entries.length; i += 1) {
-    const entry = entries[i];
-    if (entry.line > lastVisible + 2) break;
+  for (const item of diffsByPane[index]) {
+    if (item.line < firstLine - 1) continue;
+    if (item.line > lastLine + 1) break;
     const band = document.createElement('div');
-    band.className = `editor-diff-band ${entry.type}${entry.line === currentLine ? ' current' : ''}`;
-    band.style.top = `${paddingTop + (entry.line - 1) * lineHeight - editor.scrollTop}px`;
+    band.className = `editor-diff-band ${item.type}${item.index === currentDiffIndex ? ' current' : ''}`;
+    band.style.top = `${paddingTop + (item.line - 1) * lineHeight - editor.scrollTop}px`;
     band.style.height = `${lineHeight}px`;
-    frag.appendChild(band);
+    fragment.appendChild(band);
   }
-
-  overlay.replaceChildren(frag);
+  overlay.replaceChildren(fragment);
 }
 
 function hideOverlays() {
-  for (let index = 0; index < overlays.length; index += 1) {
-    overlays[index]?.replaceChildren();
-    overlays[index]?.classList.add('hidden');
-    editors[index]?.closest('.editor-wrap')?.classList.remove('compare-editing');
-  }
+  overlays.forEach((overlay) => {
+    overlay?.classList.add('hidden');
+    overlay?.replaceChildren();
+  });
 }
 
-function markInvalidPanes(items) {
+function markInvalidPanes(sides) {
   clearInvalidPaneMarkers();
-  for (const item of items) {
-    const index = item.side === 'left' ? 0 : item.side === 'right' ? 1 : -1;
-    if (index >= 0) panes[index]?.classList.add('invalid-payload');
+  for (const item of sides) {
+    const index = item.side === 'right' ? 1 : 0;
+    panes[index]?.classList.add('invalid-payload');
   }
 }
 
 function clearInvalidPaneMarkers() {
-  panes.forEach((pane) => pane.classList.remove('invalid-payload'));
-}
-
-function lowerBound(entries, line) {
-  let lo = 0;
-  let hi = entries.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (entries[mid].line < line) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
-function setLiveStatus(message, error = false) {
-  if (!statusText) return;
-  statusText.textContent = message;
-  statusText.classList.toggle('error', error);
+  panes.forEach((pane) => pane?.classList.remove('invalid-payload'));
 }
 
 function resetLiveCompare() {
+  clearTimeout(liveTimer);
   compareActive = false;
   activeMode = currentMode();
-  clearTimeout(liveTimer);
-  latestRequest += 1;
   orderedDiffs = [];
   lastGoodSummary = null;
   lastGoodElapsed = 0;
-  currentDiffIndex = 0;
+  lastComparisonKind = 'structural';
+  lastFallbackReason = '';
   invalidSides = [];
+  currentDiffIndex = 0;
   diffsByPane[0] = [];
   diffsByPane[1] = [];
   diffLinesByPane[0] = [];
   diffLinesByPane[1] = [];
-  suppressScrollTrackingUntil = 0;
-  userScrollPane = -1;
-  userScrollPaneUntil = 0;
   hideOverlays();
   clearInvalidPaneMarkers();
-  compareBar?.classList.remove('live-stale', 'live-invalid');
-  if (diffPosition) diffPosition.textContent = '0 of 0';
-  if (firstDiff) firstDiff.disabled = true;
-  if (prevDiff) prevDiff.disabled = true;
-  if (nextDiff) nextDiff.disabled = true;
-  if (lastDiff) lastDiff.disabled = true;
+}
+
+function setLiveStatus(message) {
+  if (!statusText) return;
+  statusText.textContent = message;
+  statusText.classList.remove('error');
 }
