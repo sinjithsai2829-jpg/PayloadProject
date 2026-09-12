@@ -25,7 +25,7 @@ function install() {
   details.id = 'compareOptions';
   details.className = 'compare-options';
   details.innerHTML = `
-    <summary title="Comparison options">Compare options</summary>
+    <summary title="Comparison options" aria-haspopup="true" aria-expanded="false">Compare options</summary>
     <div class="compare-options-menu" role="group" aria-label="Comparison options">
       <label><input type="checkbox" data-option="detectMoves"> Detect moved lines</label>
       <label><input type="checkbox" data-option="ignoreWhitespace"> Ignore whitespace</label>
@@ -35,6 +35,11 @@ function install() {
   `;
   toolbar.appendChild(details);
 
+  const summary = details.querySelector('summary');
+  details.addEventListener('toggle', () => {
+    summary?.setAttribute('aria-expanded', String(details.open));
+  });
+
   details.querySelectorAll('input[data-option]').forEach((input) => {
     input.addEventListener('change', () => {
       const key = input.dataset.option;
@@ -43,6 +48,30 @@ function install() {
       publish('user');
     });
   });
+
+  // Behave like a normal popover: interacting anywhere outside closes it,
+  // while interactions with the options themselves keep it open.
+  document.addEventListener('pointerdown', (event) => {
+    if (!details.open || details.contains(event.target)) return;
+    details.open = false;
+  }, true);
+
+  // Keyboard users should be able to dismiss the menu without returning to
+  // the trigger first. Move focus back to the trigger after Escape.
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !details.open) return;
+    event.preventDefault();
+    details.open = false;
+    summary?.focus();
+  });
+
+  // If keyboard focus leaves the popover entirely, close it as well. This
+  // prevents an abandoned menu from covering the comparison workspace.
+  document.addEventListener('focusin', (event) => {
+    if (!details.open || details.contains(event.target)) return;
+    details.open = false;
+  });
+
   syncInputs();
   installStyles();
 }
