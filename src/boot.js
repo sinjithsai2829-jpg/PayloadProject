@@ -30,6 +30,7 @@ import './diff-visibility.js';
 import './editable-code-surface.js';
 import './scrollbar-visibility.js';
 import './smart-wrap-scroll-bridge.js';
+import './smart-wrap-scroll-guard.js';
 import './saved-comparisons.js';
 import './editor-syntax-markers.js';
 import './theme-diagnostics-contrast.js';
