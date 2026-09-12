@@ -81,6 +81,12 @@ function installProgrammaticRefreshHooks() {
 
   window.addEventListener('payloaddiff:live-compare-updated', () => refreshAllCaches(false));
   window.addEventListener('payloaddiff:comparison-reset', () => refreshAllCaches(true));
+  window.addEventListener('payloaddiff:word-wrap-changed', () => refreshAllCaches(false));
+  window.addEventListener('payloaddiff:word-wrap-layout', (event) => {
+    const index = Number(event.detail?.paneIndex);
+    if (Number.isInteger(index)) scheduleRender(index);
+    else editors.forEach((_, paneIndex) => scheduleRender(paneIndex));
+  });
 }
 
 function refreshAfterBusy() {
@@ -115,6 +121,7 @@ function refreshCache(index, force) {
   const cache = lineCaches[index];
   const lengthChanged = cache.length !== editor.value.length;
   if (force || lengthChanged) lineCaches[index] = buildLineCache(editor.value);
+  window.PayloadDiffWordWrap?.refresh?.(index);
   scheduleRender(index);
 }
 
@@ -141,14 +148,15 @@ function renderLineNumbers(index) {
   const rows = gutterRows[index];
   if (!editor || !gutter || !rows || gutter.classList.contains('hidden')) return;
 
-  const metrics = visibleMetrics(editor, lineCaches[index].lines.length);
+  const metrics = visibleMetrics(index, editor, lineCaches[index].lines.length);
   const fragment = document.createDocumentFragment();
   for (let line = metrics.first; line <= metrics.last; line += 1) {
+    const lineMetrics = logicalLineMetrics(index, line, metrics);
     const row = document.createElement('div');
     row.className = 'editor-line-number';
     row.textContent = line.toLocaleString();
-    row.style.top = `${metrics.paddingTop + (line - 1) * metrics.lineHeight - editor.scrollTop}px`;
-    row.style.height = `${metrics.lineHeight}px`;
+    row.style.top = `${lineMetrics.top - editor.scrollTop}px`;
+    row.style.height = `${lineMetrics.height}px`;
     row.style.lineHeight = `${metrics.lineHeight}px`;
     fragment.appendChild(row);
   }
@@ -161,7 +169,7 @@ function renderIndentGuides(index) {
   const cache = lineCaches[index];
   if (!editor || !layer || !cache || layer.classList.contains('hidden')) return;
 
-  const metrics = visibleMetrics(editor, cache.lines.length);
+  const metrics = visibleMetrics(index, editor, cache.lines.length);
   const charWidth = measureCharWidth(metrics.style);
   const indentUnit = Math.max(1, cache.indentUnit || 2);
   const fragment = document.createDocumentFragment();
@@ -175,14 +183,16 @@ function renderIndentGuides(index) {
     const depth = Math.floor(columns / indentUnit);
     if (!depth) continue;
 
-    const top = metrics.paddingTop + (line - 1) * metrics.lineHeight - editor.scrollTop;
+    const lineMetrics = logicalLineMetrics(index, line, metrics);
+    const top = lineMetrics.top - editor.scrollTop;
+    const guideHeight = lineMetrics.height;
     for (let level = 1; level <= depth; level += 1) {
       const guide = document.createElement('span');
       const isActive = line === activeLines[index] && level === depth;
       guide.className = `editor-indent-guide${isActive ? ' active' : ''}`;
       guide.style.left = `${contentOrigin + level * indentUnit * charWidth - editor.scrollLeft}px`;
       guide.style.top = `${top}px`;
-      guide.style.height = `${metrics.lineHeight}px`;
+      guide.style.height = `${guideHeight}px`;
       fragment.appendChild(guide);
     }
   }
@@ -190,16 +200,33 @@ function renderIndentGuides(index) {
   layer.replaceChildren(fragment);
 }
 
-function visibleMetrics(editor, totalLines) {
+function visibleMetrics(index, editor, totalLines) {
   const style = getComputedStyle(editor);
   const lineHeight = parseFloat(style.lineHeight) || 20;
   const paddingTop = parseFloat(style.paddingTop) || 0;
   const tabSize = Math.max(1, parseInt(style.tabSize, 10) || 2);
+  const wrapped = !!window.PayloadDiffWordWrap?.isEnabled?.(index);
+  if (wrapped) {
+    const range = window.PayloadDiffWordWrap?.getVisibleLineRange?.(index, 6) || { first: 1, last: totalLines };
+    return { style, lineHeight, paddingTop, tabSize, first: range.first, last: range.last, wrapped };
+  }
+
   const overscan = 8;
   const first = Math.max(1, Math.floor((editor.scrollTop - paddingTop) / lineHeight) + 1 - overscan);
   const visibleCount = Math.ceil(editor.clientHeight / lineHeight) + overscan * 2 + 2;
   const last = Math.min(Math.max(1, totalLines), first + visibleCount);
-  return { style, lineHeight, paddingTop, tabSize, first, last };
+  return { style, lineHeight, paddingTop, tabSize, first, last, wrapped };
+}
+
+function logicalLineMetrics(index, line, metrics) {
+  if (metrics.wrapped) {
+    const wrapped = window.PayloadDiffWordWrap?.getLineMetrics?.(index, line);
+    if (wrapped) return wrapped;
+  }
+  return {
+    top: metrics.paddingTop + (line - 1) * metrics.lineHeight,
+    height: metrics.lineHeight,
+  };
 }
 
 function buildLineCache(text) {
