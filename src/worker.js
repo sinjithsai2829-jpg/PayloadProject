@@ -1,9 +1,10 @@
-import { comparePayloads } from './core.js';
 import { searchJsonTree } from './search.js';
 import { formatJsonBestEffort, formatXmlBestEffort } from './resilient-format.js';
 import { detectPayloadIssues } from './syntax-issues.js';
 import { compareTextPayloads } from './text-fallback-diff.js';
 import { compareFormattedXml } from './xml-compare.js';
+import { compareJsonValues, attachPrettyJsonLineNumbers } from './fast-engine.js';
+import { annotateMovedLineDiffs, normalizeCompareOptions } from './compare-normalization.js';
 
 const jsonCache = new Map();
 
@@ -58,6 +59,7 @@ self.onmessage = (event) => {
 };
 
 function compareWithRecovery(payload) {
+  const options = normalizeCompareOptions(payload.options || {});
   if (payload.mode === 'xml') {
     const left = formatXmlBestEffort(payload.left);
     const right = formatXmlBestEffort(payload.right);
@@ -67,10 +69,11 @@ function compareWithRecovery(payload) {
         left: left.formatted,
         right: right.formatted,
         reason: structuralReason('XML', left, right),
+        options,
       });
     }
     return {
-      ...compareFormattedXml(left.formatted, right.formatted),
+      ...compareFormattedXml(left.formatted, right.formatted, options),
       comparisonKind: 'structural',
       fallback: false,
     };
@@ -84,17 +87,26 @@ function compareWithRecovery(payload) {
       left: left.formatted,
       right: right.formatted,
       reason: structuralReason('JSON', left, right),
+      options,
     });
   }
 
+  const compared = compareJsonValues(left.parsed, right.parsed, undefined, options);
+  const ordered = attachPrettyJsonLineNumbers(left.parsed, right.parsed, compared.diffs);
+  const leftLines = JSON.stringify(left.parsed, null, 2).split('\n');
+  const rightLines = JSON.stringify(right.parsed, null, 2).split('\n');
+  const moved = annotateMovedLineDiffs(ordered, leftLines, rightLines, options);
   return {
-    ...comparePayloads({
-      mode: 'json',
-      left: JSON.stringify(left.parsed),
-      right: JSON.stringify(right.parsed),
-    }),
+    mode: 'json',
+    diffs: moved.diffs,
+    ordered: moved.diffs,
+    summary: { ...compared.summary, moved: moved.movedPairs },
+    identical: compared.identical,
+    compareOptions: options,
+    movedPairs: moved.movedPairs,
     comparisonKind: 'structural',
     fallback: false,
+    elapsedMs: 0,
   };
 }
 
