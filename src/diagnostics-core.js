@@ -1,9 +1,9 @@
-export const DIAGNOSTICS_SCHEMA_VERSION = 1;
-export const MAX_DIAGNOSTIC_EVENTS = 600;
-export const MAX_DIAGNOSTIC_STRING = 800;
+export const DIAGNOSTICS_SCHEMA_VERSION = 2;
+export const MAX_DIAGNOSTIC_EVENTS = 1200;
+export const MAX_DIAGNOSTIC_STRING = 1200;
 
 export function sanitizeDiagnosticValue(value, depth = 0) {
-  if (depth > 4) return '[max-depth]';
+  if (depth > 5) return '[max-depth]';
   if (value == null || typeof value === 'number' || typeof value === 'boolean') return value;
 
   if (typeof value === 'string') return sanitizeDiagnosticString(value);
@@ -17,12 +17,12 @@ export function sanitizeDiagnosticValue(value, depth = 0) {
   }
 
   if (Array.isArray(value)) {
-    return value.slice(0, 30).map((item) => sanitizeDiagnosticValue(item, depth + 1));
+    return value.slice(0, 60).map((item) => sanitizeDiagnosticValue(item, depth + 1));
   }
 
   if (typeof value === 'object') {
     const out = {};
-    for (const [key, item] of Object.entries(value).slice(0, 50)) {
+    for (const [key, item] of Object.entries(value).slice(0, 80)) {
       if (isSensitiveKey(key)) {
         out[key] = '[redacted]';
       } else {
@@ -53,7 +53,7 @@ export function sanitizeStack(stack) {
   if (!stack) return '';
   return String(stack)
     .split('\n')
-    .slice(0, 18)
+    .slice(0, 24)
     .map((line) => sanitizeDiagnosticString(line))
     .join('\n');
 }
@@ -81,6 +81,22 @@ export function countNewlinesFast(text) {
   return lines;
 }
 
+export function summarizeDiagnosticEvents(events) {
+  const summary = {
+    total: 0,
+    levels: { debug: 0, info: 0, warn: 0, error: 0 },
+    types: {},
+  };
+  for (const event of Array.isArray(events) ? events : []) {
+    summary.total += 1;
+    const level = typeof event?.level === 'string' ? event.level : 'debug';
+    summary.levels[level] = (summary.levels[level] || 0) + 1;
+    const type = typeof event?.type === 'string' ? event.type : 'unknown';
+    summary.types[type] = (summary.types[type] || 0) + 1;
+  }
+  return summary;
+}
+
 function looksLikePayload(text) {
   const trimmed = text.trim();
   if (!trimmed) return false;
@@ -100,7 +116,7 @@ function looksLikePayload(text) {
 }
 
 function isSensitiveKey(key) {
-  return /^(payload|content|body|raw|formatted|parsed|left|right|text|value|editorValue|fileContent)$/i.test(String(key));
+  return /^(payload|payloads|content|body|raw|formatted|parsed|left|right|text|value|editorValue|fileContent|query|searchText|clipboard|selectionText|innerHTML|outerHTML)$/i.test(String(key));
 }
 
 function looksLikeError(value) {
