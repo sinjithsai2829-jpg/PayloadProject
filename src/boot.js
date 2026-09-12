@@ -3,6 +3,7 @@ import './ui-labels.js';
 import './theme-toggle.js';
 import './view-surface-coordinator.js';
 import './payload-auto-detect.js';
+import './payload-action-mode-guard.js';
 import './paste-buttons.js';
 import './enhancements.js';
 import './word-wrap.js';
