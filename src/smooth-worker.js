@@ -1,7 +1,7 @@
 import { compareJsonValues, attachPrettyJsonLineNumbers } from './fast-engine.js';
-import { comparePayloads } from './core.js';
 import { formatJsonBestEffort, formatXmlBestEffort } from './resilient-format.js';
 import { compareTextPayloads } from './text-fallback-diff.js';
+import { compareFormattedXml } from './xml-compare.js';
 
 let revision = 0;
 
@@ -13,8 +13,6 @@ self.onmessage = ({ data }) => {
     const myRevision = ++revision;
     const started = performance.now();
     const mode = payload.mode === 'xml' ? 'xml' : 'json';
-    // Kept as metadata for diagnostics/UI compatibility. Syntax problems no
-    // longer block comparison; they trigger the Notepad-style text fallback.
     const invalidSides = [];
 
     if (mode === 'json') {
@@ -106,11 +104,7 @@ self.onmessage = ({ data }) => {
       return;
     }
 
-    const compared = comparePayloads({
-      mode: 'xml',
-      left: leftFormatted.formatted,
-      right: rightFormatted.formatted,
-    });
+    const compared = compareFormattedXml(leftFormatted.formatted, rightFormatted.formatted);
     self.postMessage({
       id,
       ok: true,
