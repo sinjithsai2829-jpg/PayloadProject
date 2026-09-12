@@ -85,7 +85,9 @@ for (const requiredSignal of [
   'performance.layout-shift',
   'ui.keyboard-shortcut',
   'editor.scrolled',
-  'event.payloaddiff',
+  'payloaddiff:live-compare-updated',
+  'payloaddiff:syntax-issues-updated',
+  'payloaddiff:view-surface-synced',
   'lineMapSample',
   'diagnosticsSchemaVersion',
 ]) {
