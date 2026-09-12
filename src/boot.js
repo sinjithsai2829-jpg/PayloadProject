@@ -9,6 +9,7 @@ import './editable-default.js';
 import './sync-scroll.js';
 import './diff-nav-ui.js';
 import './editable-compare.js';
+import './aligned-compare-view.js';
 import './compare-surface-guard.js';
 import './inline-diff-highlights.js';
 import './code-folding.js';
