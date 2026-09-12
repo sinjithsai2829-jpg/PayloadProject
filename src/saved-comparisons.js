@@ -68,6 +68,7 @@ function captureUiState() {
     theme: window.PayloadDiffTheme?.get?.() || 'dark',
     panelNames: window.PayloadDiffPanelNames?.get?.() || ['File 1', 'File 2'],
     syncEnabled: syncInput?.checked ?? true,
+    wordWrap: window.PayloadDiffWordWrap?.get?.() || [false, false],
     currentDiffIndex: window.PayloadDiffCompareSession?.getCurrentDiffIndex?.() ?? 0,
     foldedRanges: window.PayloadDiffCodeFolding?.getState?.() || [[], []],
     codeScroll: [0, 1].map((index) => scrollState(visibleCodeScroller(index))),
@@ -115,6 +116,7 @@ function downloadComparison() {
       mode: snapshot.mode,
       theme: snapshot.ui.theme,
       panelNames: snapshot.ui.panelNames,
+      wordWrap: snapshot.ui.wordWrap,
       foldedRanges: snapshot.ui.foldedRanges,
       chars: [snapshot.payloads.left.length, snapshot.payloads.right.length],
       currentDiffIndex: snapshot.ui.currentDiffIndex,
@@ -145,6 +147,7 @@ async function openComparison(event) {
       mode: snapshot.mode,
       theme: snapshot.ui.theme,
       panelNames: snapshot.ui.panelNames,
+      wordWrap: snapshot.ui.wordWrap,
       foldedRanges: snapshot.ui.foldedRanges,
       chars: [snapshot.payloads.left.length, snapshot.payloads.right.length],
       currentDiffIndex: snapshot.ui.currentDiffIndex,
@@ -175,6 +178,8 @@ async function restoreSnapshot(snapshot) {
     syncInput.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  window.PayloadDiffWordWrap?.set?.(snapshot.ui.wordWrap || [false, false], { notify: false });
+
   for (let index = 0; index < 2; index += 1) panes[index]?.querySelector('.view-btn[data-view="code"]')?.click();
   await frame();
 
@@ -202,7 +207,7 @@ function restoreScroll(ui) {
     const codeScroller = visibleCodeScroller(index);
     if (codeScroller && code) {
       codeScroller.scrollTop = code.top || 0;
-      codeScroller.scrollLeft = code.left || 0;
+      codeScroller.scrollLeft = window.PayloadDiffWordWrap?.isEnabled?.(index) ? 0 : (code.left || 0);
     }
     const tree = panes[index]?.querySelector('.tree-view');
     const treeSaved = ui.treeScroll[index];
