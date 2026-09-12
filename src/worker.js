@@ -1,10 +1,11 @@
 import { searchJsonTree } from './search.js';
-import { formatJsonBestEffort, formatXmlBestEffort } from './resilient-format.js';
+import { formatJsonBestEffort, formatXmlBestEffort, recoverJsonForFormatting } from './resilient-format.js';
 import { detectPayloadIssues } from './syntax-issues.js';
 import { compareTextPayloads } from './text-fallback-diff.js';
 import { compareFormattedXml } from './xml-compare.js';
 import { compareJsonValues, attachPrettyJsonLineNumbers } from './fast-engine.js';
 import { annotateMovedLineDiffs, normalizeCompareOptions } from './compare-normalization.js';
+import { jsonComparisonFidelityIssue } from './compare-fidelity.js';
 
 const jsonCache = new Map();
 
@@ -66,8 +67,8 @@ function compareWithRecovery(payload) {
     if (!left.valid || !right.valid) {
       return compareTextPayloads({
         mode: 'xml',
-        left: left.formatted,
-        right: right.formatted,
+        left: payload.left,
+        right: payload.right,
         reason: structuralReason('XML', left, right),
         options,
       });
@@ -79,13 +80,33 @@ function compareWithRecovery(payload) {
     };
   }
 
+  // JSON.parse silently keeps only the last occurrence of duplicate object keys.
+  // Comparing that parsed object would therefore hide source lines the user can
+  // clearly see in the editor. Detect this before structural parsing and switch
+  // to the same lossless line comparison used for malformed payloads.
+  const recoveredLeft = recoverJsonForFormatting(payload.left).text;
+  const recoveredRight = recoverJsonForFormatting(payload.right).text;
+  const fidelityIssue = jsonComparisonFidelityIssue(recoveredLeft, recoveredRight);
+  if (fidelityIssue) {
+    return {
+      ...compareTextPayloads({
+        mode: 'json',
+        left: payload.left,
+        right: payload.right,
+        reason: fidelityIssue.reason,
+        options,
+      }),
+      fidelityIssue,
+    };
+  }
+
   const left = formatJsonBestEffort(payload.left);
   const right = formatJsonBestEffort(payload.right);
   if (left.parsed == null || right.parsed == null) {
     return compareTextPayloads({
       mode: 'json',
-      left: left.formatted,
-      right: right.formatted,
+      left: payload.left,
+      right: payload.right,
       reason: structuralReason('JSON', left, right),
       options,
     });
