@@ -36,6 +36,7 @@ window.PayloadDiffWordWrap = {
     else rebuild(index, true);
   },
   getLineMetrics: (index, line) => getLineMetrics(index, line),
+  getTextMetrics: (index, text) => getTextMetrics(index, text),
   getVisibleLineRange: (index, overscan = 2) => getVisibleLineRange(index, overscan),
   lineAtContentY: (index, contentY) => lineAtContentY(index, contentY),
   scrollTopForLine: (index, line, viewportRatio = 0.42) => scrollTopForLine(index, line, viewportRatio),
@@ -285,6 +286,17 @@ function getLineMetrics(index, line) {
   };
 }
 
+function getTextMetrics(index, text) {
+  const item = ensureFresh(index);
+  const lineHeight = item?.lineHeight || 20;
+  if (!item?.enabled || !Number.isFinite(item.columnsPerRow)) {
+    return { rows: 1, height: lineHeight, lineHeight, columnsPerRow: Infinity };
+  }
+  const columns = visualColumns(String(text ?? ''), item.tabSize || 2);
+  const rows = Math.max(1, Math.ceil(Math.max(1, columns) / Math.max(1, item.columnsPerRow)));
+  return { rows, height: rows * lineHeight, lineHeight, columnsPerRow: item.columnsPerRow };
+}
+
 function getVisibleLineRange(index, overscan = 2) {
   const editor = editors[index];
   const item = ensureFresh(index);
@@ -490,15 +502,33 @@ function installStyles() {
     }
     .word-wrap-active .editor-diff-overlay,
     .word-wrap-active .inline-diff-layer,
-    .word-wrap-active .syntax-line-layer,
-    .word-wrap-active .code-fold-gutter,
-    .word-wrap-active .fold-code-view {
+    .word-wrap-active .syntax-line-layer {
       display: none !important;
+    }
+    .word-wrap-active .fold-code-view {
+      overflow-x: hidden !important;
+    }
+    .word-wrap-active .fold-code-row {
+      width: 100%;
+      min-width: 100%;
+      white-space: pre-wrap;
+      align-items: flex-start;
+    }
+    .word-wrap-active .fold-row-text {
+      flex: 1 1 auto;
+      min-width: 0;
+      width: auto;
+      overflow-wrap: anywhere;
+      word-break: break-all;
+    }
+    .word-wrap-active .fold-indent-guide {
+      bottom: auto;
+      height: var(--pd-wrap-guide-height, 20px);
     }
     .wrap-diff-layer,
     .wrap-syntax-layer {
       position: absolute;
-      inset: 0 14px 0 64px;
+      inset: 0 14px 0 var(--pd-code-gutter-width, 78px);
       overflow: hidden;
       pointer-events: none;
     }
