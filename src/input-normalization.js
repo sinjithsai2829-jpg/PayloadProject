@@ -155,8 +155,15 @@ function looksLikeEscapedJsonDocument(input) {
 }
 
 function isIgnorableWrapperTail(tail) {
-  const trimmed = String(tail ?? '').trim();
+  let trimmed = String(tail ?? '').trim();
   if (!trimmed || trimmed.length > 64) return false;
+
+  // Loggers frequently serialize the whitespace between a copied JSON value and
+  // its containing punctuation, leaving literal "\\n", "\\r" or "\\t" in the
+  // clipboard. Treat those transport-only whitespace escapes exactly like real
+  // whitespace, then keep the strict punctuation-only safety check below.
+  trimmed = trimmed.replace(/\\[nrt]/g, '').trim();
+  if (!trimmed) return false;
 
   // Accept only closing punctuation left behind when a user copies the value
   // portion of a larger log/JSON wrapper. Any letters, digits, '<', etc. make
