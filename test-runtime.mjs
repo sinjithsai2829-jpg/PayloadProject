@@ -6,6 +6,7 @@ const main = await readFile(new URL('./src/main.js', import.meta.url), 'utf8');
 const live = await readFile(new URL('./src/editable-compare.js', import.meta.url), 'utf8');
 const inlineDiff = await readFile(new URL('./src/inline-diff-highlights.js', import.meta.url), 'utf8');
 const codeFolding = await readFile(new URL('./src/code-folding.js', import.meta.url), 'utf8');
+const foldRanges = await readFile(new URL('./src/fold-ranges.js', import.meta.url), 'utf8');
 const treeDiffNavigation = await readFile(new URL('./src/tree-diff-navigation.js', import.meta.url), 'utf8');
 const smoothWorker = await readFile(new URL('./src/smooth-worker.js', import.meta.url), 'utf8');
 const sync = await readFile(new URL('./src/sync-scroll.js', import.meta.url), 'utf8');
@@ -44,9 +45,14 @@ assert.ok(viewSurface.includes('> .tree-view'));
 assert.ok(!viewSurface.includes("mode === 'json'"));
 assert.ok(!viewSurface.includes("mode === 'xml'"));
 
-assert.ok(codeFolding.includes("mode === 'xml' ? findXmlFoldRanges(text) : findJsonFoldRanges(text)"));
-assert.ok(codeFolding.includes('findJsonFoldRanges'));
-assert.ok(codeFolding.includes('findXmlFoldRanges'));
+// Folding structure detection was extracted from the renderer. Verify the
+// renderer consumes the shared parser and that the shared parser preserves
+// JSON/XML parity, rather than asserting implementation text lives in one file.
+assert.ok(codeFolding.includes("import { findFoldRanges } from './fold-ranges.js'"));
+assert.ok(codeFolding.includes('findFoldRanges(mode, editor.value)'));
+assert.ok(foldRanges.includes("mode === 'xml' ? findXmlFoldRanges(text) : findJsonFoldRanges(text)"));
+assert.ok(foldRanges.includes('findJsonFoldRanges'));
+assert.ok(foldRanges.includes('findXmlFoldRanges'));
 assert.ok(codeFolding.includes('code-fold-toggle'));
 assert.ok(codeFolding.includes('fold-row-toggle'));
 assert.ok(codeFolding.includes('fold-code-view'));
