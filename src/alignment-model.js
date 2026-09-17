@@ -75,6 +75,8 @@ export function buildAlignedRows(leftText, rightText, diffs = []) {
   });
 
   // Attach every logical diff (including modified rows) to the aligned row.
+  // One-sided gap rows are seeded with their diff index when they are created,
+  // so avoid appending that same index a second time during this common pass.
   for (const diff of ordered) {
     const leftLine = positiveLine(diff.leftLine);
     const rightLine = positiveLine(diff.rightLine);
@@ -90,7 +92,7 @@ export function buildAlignedRows(leftText, rightText, diffs = []) {
 
     if (rowIndex == null || !rows[rowIndex]) continue;
     const row = rows[rowIndex];
-    row.diffIndexes.push(diff.diffIndex);
+    if (!row.diffIndexes.includes(diff.diffIndex)) row.diffIndexes.push(diff.diffIndex);
     row.type = mergeType(row.type, normalizeType(diff.type));
   }
 
