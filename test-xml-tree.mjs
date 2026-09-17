@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { parseXmlTree } from './src/xml-tree.js';
 
 const simple = parseXmlTree('<root><child id="1">value</child></root>');
-assert.equal(simple.kind, 'document');
+assert.equal(simple.kind, 'xml-document');
 assert.equal(simple.children.length, 1);
 assert.equal(simple.children[0].name, 'root');
 assert.equal(simple.children[0].children[0].name, 'child');
