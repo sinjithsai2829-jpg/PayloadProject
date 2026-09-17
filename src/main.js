@@ -166,9 +166,9 @@ els.editors.forEach((editor, index) => {
   });
 });
 
-// Keep the core tree/diff state aligned with the fast live comparison result.
-// Code highlighting/navigation and Tree highlighting now consume the same diff
-// result instead of maintaining unrelated comparison sessions.
+// Code view and Tree view intentionally consume different JSON diff models.
+// Code uses formatted-line alignment (what a user sees in a normal text diff),
+// while Tree keeps JSON-path structural differences for semantic highlighting.
 window.addEventListener('payloaddiff:live-compare-updated', (event) => {
   if (state.mode !== 'json') return;
   const detail = event.detail;
@@ -177,6 +177,7 @@ window.addEventListener('payloaddiff:live-compare-updated', (event) => {
   state.compare = {
     mode: 'json',
     diffs: detail.diffs,
+    structuralDiffs: Array.isArray(detail.structuralDiffs) ? detail.structuralDiffs : [],
     summary: detail.summary,
     identical: !!detail.identical,
     elapsedMs: detail.elapsedMs || 0,
@@ -324,7 +325,12 @@ function moveDiff(delta) {
 
   if (state.mode === 'json') {
     const diff = state.compare.diffs[state.compareIndex];
-    revealJsonPath(diff.path);
+    if (diff?.path?.startsWith('$jsonline')) {
+      if (diff.leftLine) scrollTextareaToLine(els.editors[0], diff.leftLine);
+      if (diff.rightLine) scrollTextareaToLine(els.editors[1], diff.rightLine);
+    } else if (diff?.path) {
+      revealJsonPath(diff.path);
+    }
   } else {
     const leftLine = state.compare.leftChanged[state.compareIndex];
     const rightLine = state.compare.rightChanged[state.compareIndex];
@@ -498,7 +504,10 @@ function buildDiffIndex() {
   state.diffExact = new Map();
   state.diffAncestors = new Set();
   if (!state.compare || state.mode !== 'json') return;
-  for (const diff of state.compare.diffs) {
+  const treeDiffs = Array.isArray(state.compare.structuralDiffs) && state.compare.structuralDiffs.length
+    ? state.compare.structuralDiffs
+    : state.compare.diffs.filter((diff) => diff?.path && !diff.path.startsWith('$jsonline'));
+  for (const diff of treeDiffs) {
     state.diffExact.set(diff.path, diff.type);
     const ancestors = pathAncestors(diff.path);
     for (let i = 0; i < ancestors.length - 1; i += 1) state.diffAncestors.add(ancestors[i]);
