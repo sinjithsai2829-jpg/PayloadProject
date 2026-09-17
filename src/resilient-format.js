@@ -86,10 +86,24 @@ export function formatXmlBestEffort(input) {
   // transport string contains source-language escapes such as \' the JSON
   // decoder cannot unwrap it. Repair only the quoted transport wrapper first;
   // ordinary raw XML is left untouched.
-  const wrappedTransport = looksLikeQuotedXmlTransport(original)
+  const quotedTransport = looksLikeQuotedXmlTransport(original);
+  const wrappedTransport = quotedTransport
     ? repairKnownInvalidJsonEscapes(original)
     : { text: original, changed: false };
-  const cleaned = normalizeEscapedXml(wrappedTransport.text);
+  let cleaned = normalizeEscapedXml(wrappedTransport.text);
+
+  // After a quoted transport wrapper is decoded, source-language artifacts can
+  // remain inside the XML text itself (for example MQD\'s). XML does not use a
+  // backslash to escape apostrophes or ampersands, so remove only those known
+  // wrapper artifacts. Do not apply this to ordinary raw XML because a literal
+  // backslash there belongs to the user's document.
+  let repairedInnerTransport = false;
+  if (quotedTransport) {
+    const normalizedInner = cleaned.replace(/\\(['&])/g, '$1');
+    repairedInnerTransport = normalizedInner !== cleaned;
+    cleaned = normalizedInner;
+  }
+
   let valid = true;
   let warning = '';
   try {
@@ -100,7 +114,7 @@ export function formatXmlBestEffort(input) {
   }
 
   const formatted = prettyXml(cleaned);
-  const normalizedTransport = wrappedTransport.changed || cleaned !== original;
+  const normalizedTransport = wrappedTransport.changed || repairedInnerTransport || cleaned !== original;
   return {
     mode: 'xml',
     formatted,
