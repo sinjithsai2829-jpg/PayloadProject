@@ -1,4 +1,5 @@
 import './main.js';
+import './huge-select-all-guard.js';
 import './ui-labels.js';
 import './theme-toggle.js';
 import './view-surface-coordinator.js';
@@ -34,6 +35,7 @@ import './persistence.js';
 import './diff-visibility.js';
 import './editable-code-surface.js';
 import './scrollbar-visibility.js';
+import './editor-scroll-geometry.js';
 import './saved-comparisons.js';
 import './editor-syntax-markers.js';
 import './theme-diagnostics-contrast.js';

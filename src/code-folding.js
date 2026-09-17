@@ -1,3 +1,5 @@
+import { findFoldRanges } from './fold-ranges.js';
+
 const panes = [...document.querySelectorAll('.pane')];
 const editors = [document.querySelector('#editor0'), document.querySelector('#editor1')];
 const syncInput = document.querySelector('.enhancement-sync input[type="checkbox"]');
@@ -7,6 +9,10 @@ const paneState = editors.map(() => ({
   rangeByStart: new Map(),
   collapsed: new Set(),
   projection: [],
+  rowTops: [],
+  rowHeights: [],
+  totalHeight: 0,
+  layoutDirty: true,
   foldedView: null,
   foldedContent: null,
   foldGutter: null,
@@ -37,160 +43,6 @@ window.PayloadDiffCodeFolding = {
     } else setCollapsedLines(index, []);
   },
 };
-
-export function findFoldRanges(mode, text) {
-  return mode === 'xml' ? findXmlFoldRanges(text) : findJsonFoldRanges(text);
-}
-
-export function findJsonFoldRanges(input) {
-  const text = String(input ?? '');
-  const ranges = [];
-  const stack = [];
-  let line = 1;
-  let string = false;
-  let escaped = false;
-  let lineComment = false;
-  let blockComment = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    const next = text[index + 1] || '';
-
-    if (char === '\n') {
-      line += 1;
-      lineComment = false;
-      continue;
-    }
-    if (lineComment) continue;
-    if (blockComment) {
-      if (char === '*' && next === '/') {
-        blockComment = false;
-        index += 1;
-      }
-      continue;
-    }
-    if (string) {
-      if (escaped) escaped = false;
-      else if (char === '\\') escaped = true;
-      else if (char === '"') string = false;
-      continue;
-    }
-    if (char === '"') {
-      string = true;
-      continue;
-    }
-    if (char === '/' && next === '/') {
-      lineComment = true;
-      index += 1;
-      continue;
-    }
-    if (char === '/' && next === '*') {
-      blockComment = true;
-      index += 1;
-      continue;
-    }
-
-    if (char === '{' || char === '[') {
-      stack.push({ char, line });
-      continue;
-    }
-    if (char !== '}' && char !== ']') continue;
-
-    const openChar = char === '}' ? '{' : '[';
-    let stackIndex = stack.length - 1;
-    while (stackIndex >= 0 && stack[stackIndex].char !== openChar) stackIndex -= 1;
-    if (stackIndex < 0) continue;
-    const open = stack[stackIndex];
-    stack.length = stackIndex;
-    if (line > open.line) {
-      ranges.push({
-        startLine: open.line,
-        endLine: line,
-        kind: openChar === '{' ? 'object' : 'array',
-      });
-    }
-  }
-
-  return normalizeRanges(ranges);
-}
-
-export function findXmlFoldRanges(input) {
-  const text = String(input ?? '');
-  const ranges = [];
-  const stack = [];
-  let index = 0;
-  let line = 1;
-
-  while (index < text.length) {
-    const lt = text.indexOf('<', index);
-    if (lt < 0) break;
-    line += countNewlines(text, index, lt);
-
-    if (text.startsWith('<!--', lt)) {
-      const end = text.indexOf('-->', lt + 4);
-      if (end < 0) break;
-      const endLine = line + countNewlines(text, lt, end + 3);
-      if (endLine > line) ranges.push({ startLine: line, endLine, kind: 'comment' });
-      line = endLine;
-      index = end + 3;
-      continue;
-    }
-    if (text.startsWith('<![CDATA[', lt)) {
-      const end = text.indexOf(']]>', lt + 9);
-      if (end < 0) break;
-      const endLine = line + countNewlines(text, lt, end + 3);
-      if (endLine > line) ranges.push({ startLine: line, endLine, kind: 'cdata' });
-      line = endLine;
-      index = end + 3;
-      continue;
-    }
-    if (text.startsWith('<?', lt)) {
-      const end = text.indexOf('?>', lt + 2);
-      if (end < 0) break;
-      line += countNewlines(text, lt, end + 2);
-      index = end + 2;
-      continue;
-    }
-    if (/^<!DOCTYPE\b/i.test(text.slice(lt, lt + 10))) {
-      const end = findDoctypeEnd(text, lt + 2);
-      if (end < 0) break;
-      line += countNewlines(text, lt, end + 1);
-      index = end + 1;
-      continue;
-    }
-
-    const gt = findXmlTagEnd(text, lt + 1);
-    if (gt < 0) break;
-    const raw = text.slice(lt, gt + 1);
-    const startLine = line;
-    const endTagLine = line + countNewlines(text, lt, gt + 1);
-    const closing = /^<\s*\//.test(raw);
-    const selfClosing = /\/\s*>$/.test(raw);
-    const match = raw.match(/^<\s*\/?\s*([A-Za-z_][\w:.-]*)/);
-
-    if (match && !/^<!/.test(raw)) {
-      const name = match[1];
-      if (closing) {
-        let stackIndex = stack.length - 1;
-        while (stackIndex >= 0 && stack[stackIndex].name !== name) stackIndex -= 1;
-        if (stackIndex >= 0) {
-          const open = stack[stackIndex];
-          stack.length = stackIndex;
-          if (endTagLine > open.startLine) {
-            ranges.push({ startLine: open.startLine, endLine: endTagLine, kind: 'element', name });
-          }
-        }
-      } else if (!selfClosing) {
-        stack.push({ name, startLine });
-      }
-    }
-
-    line = endTagLine;
-    index = gt + 1;
-  }
-
-  return normalizeRanges(ranges);
-}
 
 function installPane(index) {
   const editor = editors[index];
@@ -254,6 +106,7 @@ function installPane(index) {
 
   if (typeof ResizeObserver !== 'undefined') {
     const observer = new ResizeObserver(() => {
+      invalidateLayout(index);
       renderExpandedFoldGutter(index);
       scheduleFoldRender(index);
     });
@@ -301,6 +154,18 @@ function installGlobalHooks() {
     scheduleFoldRender(0);
     scheduleFoldRender(1);
   });
+
+  for (const type of ['payloaddiff:word-wrap-changed', 'payloaddiff:word-wrap-layout']) {
+    window.addEventListener(type, (event) => {
+      const requested = Number(event.detail?.paneIndex);
+      const targets = Number.isInteger(requested) ? [requested] : [0, 1];
+      for (const index of targets) {
+        invalidateLayout(index);
+        renderExpandedFoldGutter(index);
+        scheduleFoldRender(index);
+      }
+    });
+  }
 }
 
 function refreshAfterBusy() {
@@ -372,9 +237,6 @@ function mirrorFold(sourceIndex, sourceRange, collapsing) {
   const target = paneState[targetIndex];
   if (!target) return;
 
-  // Prefer a structurally similar fold near the same relative document
-  // position. Exact line matching is common after formatting, but the relative
-  // fallback still works when one side has inserted/removed lines.
   const sourceLines = Math.max(1, lineCount(editors[sourceIndex]?.value || ''));
   const targetLines = Math.max(1, lineCount(editors[targetIndex]?.value || ''));
   const expected = Math.round((sourceRange.startLine / sourceLines) * targetLines);
@@ -430,13 +292,13 @@ function rebuildProjection(index) {
   }
 
   state.projection = projection;
+  invalidateLayout(index);
 }
 
 function collapsedLabel(lines, range) {
   const open = lines[range.startLine - 1] ?? '';
   const close = (lines[range.endLine - 1] ?? '').trim();
   if (range.kind === 'element') {
-    const indentation = open.match(/^\s*/)?.[0] || '';
     const openTrimmed = open.trimEnd();
     const closing = close || `</${range.name || '…'}>`;
     return `${openTrimmed}  …  ${closing.startsWith('</') ? closing : `</${range.name || '…'}>`}`;
@@ -465,22 +327,69 @@ function renderExpandedFoldGutter(index) {
   const gutter = state.foldGutter;
   if (!editor || !gutter || gutter.classList.contains('hidden')) return;
 
+  const wrapApi = window.PayloadDiffWordWrap;
+  const wrapped = !!wrapApi?.isEnabled?.(index);
   const style = getComputedStyle(editor);
   const lineHeight = parseFloat(style.lineHeight) || 20;
   const paddingTop = parseFloat(style.paddingTop) || 0;
-  const first = Math.max(1, Math.floor((editor.scrollTop - paddingTop) / lineHeight) + 1 - 3);
-  const last = Math.ceil((editor.scrollTop + editor.clientHeight - paddingTop) / lineHeight) + 3;
+  const visible = wrapped
+    ? (wrapApi.getVisibleLineRange?.(index, 4) || { first: 1, last: state.ranges.at(-1)?.endLine || 1 })
+    : {
+        first: Math.max(1, Math.floor((editor.scrollTop - paddingTop) / lineHeight) + 1 - 3),
+        last: Math.ceil((editor.scrollTop + editor.clientHeight - paddingTop) / lineHeight) + 3,
+      };
   const fragment = document.createDocumentFragment();
 
   for (const range of state.ranges) {
-    if (range.startLine < first) continue;
-    if (range.startLine > last) break;
+    if (range.startLine < visible.first) continue;
+    if (range.startLine > visible.last) break;
+    const metrics = wrapped ? wrapApi.getLineMetrics?.(index, range.startLine) : null;
+    const top = metrics?.top ?? (paddingTop + (range.startLine - 1) * lineHeight);
     const button = createFoldButton(range.startLine, false, 'code-fold-toggle');
-    button.style.top = `${paddingTop + (range.startLine - 1) * lineHeight - editor.scrollTop}px`;
-    button.style.height = `${lineHeight}px`;
+    button.style.top = `${top - editor.scrollTop}px`;
+    button.style.height = `${metrics?.lineHeight || lineHeight}px`;
     fragment.appendChild(button);
   }
   gutter.replaceChildren(fragment);
+}
+
+function invalidateLayout(index) {
+  const state = paneState[index];
+  if (!state) return;
+  state.layoutDirty = true;
+}
+
+function ensureProjectionLayout(index) {
+  const state = paneState[index];
+  const editor = editors[index];
+  if (!state || !editor || !state.layoutDirty) return;
+
+  const style = getComputedStyle(editor);
+  const lineHeight = parseFloat(style.lineHeight) || 20;
+  const wrapApi = window.PayloadDiffWordWrap;
+  const wrapped = !!wrapApi?.isEnabled?.(index);
+  const rowTops = new Array(state.projection.length);
+  const rowHeights = new Array(state.projection.length);
+  let top = 0;
+
+  for (let rowIndex = 0; rowIndex < state.projection.length; rowIndex += 1) {
+    const item = state.projection[rowIndex];
+    rowTops[rowIndex] = top;
+    let height = lineHeight;
+    if (wrapped) {
+      const metrics = item.collapsed
+        ? wrapApi.getTextMetrics?.(index, item.text)
+        : wrapApi.getLineMetrics?.(index, item.originalLine);
+      height = Math.max(lineHeight, metrics?.height || lineHeight);
+    }
+    rowHeights[rowIndex] = height;
+    top += height;
+  }
+
+  state.rowTops = rowTops;
+  state.rowHeights = rowHeights;
+  state.totalHeight = top;
+  state.layoutDirty = false;
 }
 
 function scheduleFoldRender(index) {
@@ -499,22 +408,23 @@ function renderFoldedSurface(index) {
   const content = state.foldedContent;
   if (!view || !content || view.classList.contains('hidden')) return;
 
+  ensureProjectionLayout(index);
   const editorStyle = getComputedStyle(editors[index]);
   const lineHeight = parseFloat(editorStyle.lineHeight) || 20;
   const paddingTop = parseFloat(editorStyle.paddingTop) || 14;
-  const totalRows = state.projection.length;
   const overscan = 8;
-  const firstRow = Math.max(0, Math.floor((view.scrollTop - paddingTop) / lineHeight) - overscan);
-  const visibleRows = Math.ceil(view.clientHeight / lineHeight) + overscan * 2 + 2;
-  const lastRow = Math.min(totalRows - 1, firstRow + visibleRows);
+  const firstRow = Math.max(0, rowAtY(state, Math.max(0, view.scrollTop - paddingTop)) - overscan);
+  const lastRow = Math.min(state.projection.length - 1, rowAtY(state, view.scrollTop + view.clientHeight - paddingTop) + overscan);
   const diffMap = diffTypesForPane(index);
   const currentLine = currentDiffLine(index);
   const fragment = document.createDocumentFragment();
 
   const spacer = document.createElement('div');
   spacer.className = 'fold-code-spacer';
-  spacer.style.height = `${paddingTop * 2 + totalRows * lineHeight}px`;
-  spacer.style.width = `${Math.max(view.clientWidth, editors[index]?.scrollWidth || view.clientWidth)}px`;
+  spacer.style.height = `${paddingTop * 2 + state.totalHeight}px`;
+  if (!window.PayloadDiffWordWrap?.isEnabled?.(index)) {
+    spacer.style.width = `${Math.max(view.clientWidth, editors[index]?.scrollWidth || view.clientWidth)}px`;
+  }
   fragment.appendChild(spacer);
 
   for (let rowIndex = firstRow; rowIndex <= lastRow; rowIndex += 1) {
@@ -524,8 +434,8 @@ function renderFoldedSurface(index) {
     const row = document.createElement('div');
     row.className = 'fold-code-row';
     row.dataset.originalLine = String(item.originalLine);
-    row.style.top = `${paddingTop + rowIndex * lineHeight}px`;
-    row.style.height = `${lineHeight}px`;
+    row.style.top = `${paddingTop + (state.rowTops[rowIndex] || 0)}px`;
+    row.style.height = `${state.rowHeights[rowIndex] || lineHeight}px`;
     row.style.lineHeight = `${lineHeight}px`;
 
     const hiddenDiff = item.collapsed ? diffTypeInsideRange(index, item.originalLine, item.endLine) : null;
@@ -564,6 +474,20 @@ function renderFoldedSurface(index) {
   content.replaceChildren(fragment);
 }
 
+function rowAtY(state, y) {
+  const tops = state.rowTops;
+  if (!tops.length) return 0;
+  const target = Math.max(0, Number(y) || 0);
+  let low = 0;
+  let high = tops.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (tops[middle] <= target) low = middle + 1;
+    else high = middle - 1;
+  }
+  return Math.max(0, Math.min(tops.length - 1, high));
+}
+
 function createFoldButton(line, collapsed, className) {
   const button = document.createElement('button');
   button.type = 'button';
@@ -597,8 +521,10 @@ function beginEditing(index, originalLine) {
   if (!state || !editor) return;
   state.editing = true;
   applySurface(index);
-  const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 20;
-  editor.scrollTop = Math.max(0, (originalLine - 2) * lineHeight);
+  const wrapApi = window.PayloadDiffWordWrap;
+  editor.scrollTop = wrapApi?.isEnabled?.(index)
+    ? wrapApi.scrollTopForLine(index, originalLine, 0.18)
+    : Math.max(0, (originalLine - 2) * (parseFloat(getComputedStyle(editor).lineHeight) || 20));
   const offset = offsetForLine(editor.value, originalLine);
   editor.focus();
   editor.setSelectionRange(offset, offset);
@@ -693,13 +619,15 @@ function currentDiffLine(index) {
 function visibleAnchorLine(index) {
   const state = paneState[index];
   if (state.collapsed.size && !state.foldedView.classList.contains('hidden')) {
-    const lineHeight = parseFloat(getComputedStyle(editors[index]).lineHeight) || 20;
-    const row = Math.max(0, Math.floor(state.foldedView.scrollTop / lineHeight));
-    return state.projection[Math.min(row, state.projection.length - 1)]?.originalLine || 1;
+    ensureProjectionLayout(index);
+    const paddingTop = parseFloat(getComputedStyle(editors[index]).paddingTop) || 0;
+    const row = rowAtY(state, Math.max(0, state.foldedView.scrollTop - paddingTop));
+    return state.projection[row]?.originalLine || 1;
   }
-  const editor = editors[index];
-  const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 20;
-  return Math.max(1, Math.floor(editor.scrollTop / lineHeight) + 1);
+  const wrapApi = window.PayloadDiffWordWrap;
+  if (wrapApi?.isEnabled?.(index)) return wrapApi.lineAtContentY(index, editors[index].scrollTop);
+  const lineHeight = parseFloat(getComputedStyle(editors[index]).lineHeight) || 20;
+  return Math.max(1, Math.floor(editors[index].scrollTop / lineHeight) + 1);
 }
 
 function scrollSurfaceToOriginalLine(index, line) {
@@ -707,13 +635,16 @@ function scrollSurfaceToOriginalLine(index, line) {
   const editor = editors[index];
   if (!state || !editor) return;
   if (state.collapsed.size && !state.foldedView.classList.contains('hidden')) {
+    ensureProjectionLayout(index);
     const rowIndex = projectionIndexForLine(state.projection, line);
-    const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 20;
-    state.foldedView.scrollTop = Math.max(0, rowIndex * lineHeight - state.foldedView.clientHeight * .18);
+    const top = state.rowTops[rowIndex] || 0;
+    state.foldedView.scrollTop = Math.max(0, top - state.foldedView.clientHeight * .18);
     scheduleFoldRender(index);
   } else {
-    const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 20;
-    editor.scrollTop = Math.max(0, (line - 1) * lineHeight - editor.clientHeight * .18);
+    const wrapApi = window.PayloadDiffWordWrap;
+    editor.scrollTop = wrapApi?.isEnabled?.(index)
+      ? wrapApi.scrollTopForLine(index, line, .18)
+      : Math.max(0, (line - 1) * (parseFloat(getComputedStyle(editor).lineHeight) || 20) - editor.clientHeight * .18);
   }
 }
 
@@ -730,56 +661,8 @@ function projectionIndexForLine(projection, line) {
   return Math.max(0, Math.min(projection.length - 1, low));
 }
 
-function normalizeRanges(ranges) {
-  const byStart = new Map();
-  for (const range of ranges) {
-    if (!range || range.endLine <= range.startLine) continue;
-    const existing = byStart.get(range.startLine);
-    if (!existing || range.endLine > existing.endLine) byStart.set(range.startLine, range);
-  }
-  return [...byStart.values()].sort((a, b) => a.startLine - b.startLine || b.endLine - a.endLine);
-}
-
 function currentMode() {
   return document.querySelector('.mode-btn.active')?.dataset.mode === 'xml' ? 'xml' : 'json';
-}
-
-function countNewlines(text, start, end) {
-  let count = 0;
-  for (let index = start; index < end && index < text.length; index += 1) if (text.charCodeAt(index) === 10) count += 1;
-  return count;
-}
-
-function findXmlTagEnd(text, start) {
-  let quote = '';
-  for (let index = start; index < text.length; index += 1) {
-    const char = text[index];
-    if (quote) {
-      if (char === quote) quote = '';
-      continue;
-    }
-    if (char === '"' || char === "'") quote = char;
-    else if (char === '>') return index;
-    else if (char === '<') return -1;
-  }
-  return -1;
-}
-
-function findDoctypeEnd(text, start) {
-  let quote = '';
-  let depth = 0;
-  for (let index = start; index < text.length; index += 1) {
-    const char = text[index];
-    if (quote) {
-      if (char === quote) quote = '';
-      continue;
-    }
-    if (char === '"' || char === "'") quote = char;
-    else if (char === '[') depth += 1;
-    else if (char === ']') depth = Math.max(0, depth - 1);
-    else if (char === '>' && depth === 0) return index;
-  }
-  return -1;
 }
 
 function offsetForLine(text, line) {
@@ -892,10 +775,10 @@ function installStyles() {
       position: sticky;
       left: 0;
       z-index: 2;
-      flex: 0 0 78px;
-      width: 78px;
+      flex: 0 0 var(--pd-code-gutter-width, 78px);
+      width: var(--pd-code-gutter-width, 78px);
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       background: #0b1221;
       border-right: 1px solid #253149;
       user-select: none;
@@ -903,7 +786,7 @@ function installStyles() {
     .fold-code-row:hover .fold-row-gutter,
     .fold-code-row.collapsed .fold-row-gutter { background: #101a2d; }
     .fold-row-toggle,
-    .fold-row-toggle-spacer { flex: 0 0 22px; width: 22px; height: 100%; }
+    .fold-row-toggle-spacer { flex: 0 0 22px; width: 22px; height: 20px; }
     .fold-row-number {
       flex: 1;
       min-width: 0;
@@ -932,18 +815,12 @@ function installStyles() {
     .editor-wrap.folding-active > .editor-indent-guides,
     .editor-wrap.folding-active > .editor-diff-overlay,
     .editor-wrap.folding-active > .inline-diff-layer,
-    .editor-wrap.folding-active > .syntax-line-layer {
+    .editor-wrap.folding-active > .syntax-line-layer,
+    .editor-wrap.folding-active > .wrap-diff-layer,
+    .editor-wrap.folding-active > .wrap-syntax-layer {
       visibility: hidden !important;
       pointer-events: none !important;
     }
-    .fold-code-view {
-      scrollbar-width: auto;
-      scrollbar-color: #647896 #08101d;
-    }
-    .fold-code-view::-webkit-scrollbar { width: 14px; height: 14px; }
-    .fold-code-view::-webkit-scrollbar-track { background: #08101d; border-left: 1px solid #1e2a40; }
-    .fold-code-view::-webkit-scrollbar-thumb { background: #647896; border: 3px solid #08101d; border-radius: 999px; }
-    .fold-code-view::-webkit-scrollbar-thumb:hover { background: #8aa0c2; border: 2px solid #08101d; }
   `;
   document.head.appendChild(style);
 }
