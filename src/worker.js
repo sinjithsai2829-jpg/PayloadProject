@@ -1,10 +1,10 @@
 import { searchJsonTree } from './search.js';
-import { formatJsonBestEffort, formatXmlBestEffort, recoverJsonForFormatting } from './resilient-format.js';
+import { formatJsonBestEffort, formatXmlBestEffort, recoverJsonForFormatting } from './format-recovery.js';
 import { detectPayloadIssues } from './syntax-issues.js';
 import { compareTextPayloads } from './text-fallback-diff.js';
-import { compareFormattedXml } from './xml-compare.js';
+import { compareFormattedCode } from './formatted-code-compare.js';
 import { compareJsonValues, attachPrettyJsonLineNumbers } from './fast-engine.js';
-import { annotateMovedLineDiffs, normalizeCompareOptions } from './compare-normalization.js';
+import { normalizeCompareOptions } from './compare-normalization.js';
 import { jsonComparisonFidelityIssue } from './compare-fidelity.js';
 
 const jsonCache = new Map();
@@ -74,8 +74,9 @@ function compareWithRecovery(payload) {
       });
     }
     return {
-      ...compareFormattedXml(left.formatted, right.formatted, options),
+      ...compareFormattedCode('xml', left.formatted, right.formatted, options),
       comparisonKind: 'structural',
+      codeComparisonKind: 'formatted-lines',
       fallback: false,
     };
   }
@@ -112,22 +113,17 @@ function compareWithRecovery(payload) {
     });
   }
 
-  const compared = compareJsonValues(left.parsed, right.parsed, undefined, options);
-  const ordered = attachPrettyJsonLineNumbers(left.parsed, right.parsed, compared.diffs);
-  const leftLines = JSON.stringify(left.parsed, null, 2).split('\n');
-  const rightLines = JSON.stringify(right.parsed, null, 2).split('\n');
-  const moved = annotateMovedLineDiffs(ordered, leftLines, rightLines, options);
+  const structural = compareJsonValues(left.parsed, right.parsed, undefined, options);
+  const structuralDiffs = attachPrettyJsonLineNumbers(left.parsed, right.parsed, structural.diffs);
+  const codeCompared = compareFormattedCode('json', left.formatted, right.formatted, options);
   return {
-    mode: 'json',
-    diffs: moved.diffs,
-    ordered: moved.diffs,
-    summary: { ...compared.summary, moved: moved.movedPairs },
-    identical: compared.identical,
-    compareOptions: options,
-    movedPairs: moved.movedPairs,
+    ...codeCompared,
+    structuralDiffs,
+    structuralSummary: structural.summary,
     comparisonKind: 'structural',
+    codeComparisonKind: 'formatted-lines',
     fallback: false,
-    elapsedMs: 0,
+    elapsedMs: codeCompared.elapsedMs,
   };
 }
 
