@@ -36,6 +36,7 @@ export function formatJsonBestEffort(input) {
       const notes = [
         ...attempt.notes,
         ...(decoded.layers ? [`unwrapped ${decoded.layers} JSON-string transport layer${decoded.layers === 1 ? '' : 's'}`] : []),
+        ...(decoded.repairedNested ? ['repaired invalid escapes inside decoded JSON transport string'] : []),
       ];
       return {
         mode: 'json',
@@ -43,7 +44,7 @@ export function formatJsonBestEffort(input) {
         parsed,
         valid: true,
         bestEffort: false,
-        repaired: attempt.text !== original || decoded.layers > 0,
+        repaired: attempt.text !== original || decoded.layers > 0 || decoded.repairedNested,
         repairNote: notes.length
           ? `Normalized pasted JSON: ${unique(notes).join('; ')}.`
           : '',
@@ -358,19 +359,30 @@ export function prettyJsonLoose(input) {
 function parseJsonDocument(text) {
   let value = JSON.parse(text);
   let layers = 0;
+  let repairedNested = false;
 
   // A payload copied from an API/log can itself be serialized as a JSON string:
-  // "{\"orders\":[...]}". Parsing only once returns a JavaScript string, and
-  // JSON.stringify then reproduces the same one-line escaped text. Keep
-  // unwrapping only while the decoded string clearly contains a JSON document.
+  // "{\"orders\":[...]}". Parsing only once returns a JavaScript string. The
+  // decoded inner document can still contain source-language artifacts such as
+  // \' or trailing commas, so repair only that decoded JSON document before the
+  // next parse rather than re-stringifying it as one escaped line.
   while (typeof value === 'string' && layers < 3) {
-    const nested = value.trim();
+    let nested = value.trim();
     if (!looksLikeJsonDocumentText(nested)) break;
-    value = JSON.parse(nested);
+
+    try {
+      value = JSON.parse(nested);
+    } catch (firstError) {
+      const invalidEscapes = repairKnownInvalidJsonEscapes(nested);
+      const trailingCommas = removeTrailingJsonCommas(invalidEscapes.text);
+      if (!invalidEscapes.changed && !trailingCommas.changed) throw firstError;
+      value = JSON.parse(trailingCommas.text);
+      repairedNested = true;
+    }
     layers += 1;
   }
 
-  return { value, layers };
+  return { value, layers, repairedNested };
 }
 
 function unwrapJsonTextForLooseFormatting(input) {
