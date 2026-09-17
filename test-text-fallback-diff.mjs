@@ -8,7 +8,8 @@ const jsonFallback = compareTextPayloads({
   right: '{"a":2,"broken":[1,2,}',
   reason: 'invalid JSON',
 });
-assert.equal(jsonFallback.comparisonKind, 'text-fallback');
+assert.equal(jsonFallback.comparisonKind, 'text');
+assert.equal(jsonFallback.fallback, true);
 assert.equal(jsonFallback.identical, false);
 assert.ok(jsonFallback.diffs.length > 0);
 assert.ok(jsonFallback.diffs.every((diff) => diff.leftLine || diff.rightLine));
@@ -20,7 +21,8 @@ const xmlFallback = compareTextPayloads({
   right: '<root>\n  <name>New</name>\n  <broken>\n</root>',
   reason: 'invalid XML',
 });
-assert.equal(xmlFallback.comparisonKind, 'text-fallback');
+assert.equal(xmlFallback.comparisonKind, 'text');
+assert.equal(xmlFallback.fallback, true);
 assert.equal(xmlFallback.identical, false);
 assert.ok(xmlFallback.diffs.some((diff) => diff.type === 'modified'));
 
