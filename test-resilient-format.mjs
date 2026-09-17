@@ -64,9 +64,15 @@ assert.equal(escapedXml.valid, true);
 assert.match(escapedXml.formatted, /name="Sai"/);
 assert.ok(escapedXml.formatted.includes('\n'));
 
+// JSON-string-wrapped XML gets the same transport recovery as JSON. The XML
+// formatter intentionally puts element text on its own indented line, so assert
+// the recovered value rather than coupling this test to one presentation layout.
 const wrappedXml = formatXmlBestEffort(JSON.stringify('<root><message>Earn MQD\\\'s</message></root>'));
 assert.equal(wrappedXml.valid, true);
-assert.match(wrappedXml.formatted, /<message>Earn MQD's<\/message>/);
+assert.match(wrappedXml.formatted, /Earn MQD's/);
+assert.ok(!wrappedXml.formatted.includes("MQD\\'s"));
+assert.match(wrappedXml.formatted, /<message>/);
+assert.match(wrappedXml.formatted, /<\/message>/);
 assert.ok(wrappedXml.formatted.includes('\n'));
 
 const brokenXml = formatXmlBestEffort('<root><customer><id>123</id></root>');
