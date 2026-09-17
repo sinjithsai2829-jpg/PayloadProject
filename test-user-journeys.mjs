@@ -102,7 +102,7 @@ assert.ok(fallbackUi.includes('Tree view requires structurally valid data'));
 assert.ok(viewCoordinator.includes('tree-surface-active'));
 assert.ok(viewCoordinator.includes('code-surface-active'));
 assert.ok(viewCoordinator.includes('MutationObserver'));
-assert.ok(enhancements.includes('activeView'));
+assert.ok(enhancements.includes('activeSearchSurface'));
 assert.ok(!enhancements.includes("querySelector('.view-btn[data-view=\"tree\"]')?.click()"));
 assert.ok(saved.includes('window.PayloadDiffCompareSession?.getResult?.()'));
 assert.ok(saved.includes('comparison: comparisonResult'));
