@@ -49,7 +49,7 @@ assert.ok(!viewSurface.includes("mode === 'xml'"));
 // renderer consumes the shared parser and that the shared parser preserves
 // JSON/XML parity, rather than asserting implementation text lives in one file.
 assert.ok(codeFolding.includes("import { findFoldRanges } from './fold-ranges.js'"));
-assert.ok(codeFolding.includes('findFoldRanges(mode, editor.value)'));
+assert.ok(codeFolding.includes('findFoldRanges(currentMode(), editor.value)'));
 assert.ok(foldRanges.includes("mode === 'xml' ? findXmlFoldRanges(text) : findJsonFoldRanges(text)"));
 assert.ok(foldRanges.includes('findJsonFoldRanges'));
 assert.ok(foldRanges.includes('findXmlFoldRanges'));
