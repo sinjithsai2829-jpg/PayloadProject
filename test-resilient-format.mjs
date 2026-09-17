@@ -16,6 +16,27 @@ assert.equal(recovered.parsed.orders[0].description, "Earn MQD's");
 assert.equal(recovered.parsed.orders[0].brand, 'Delta One&#174; Classic');
 assert.equal(recovered.parsed.orders[0].screen, 'Seatback Screen Size - 18" FC');
 
+// Real API/log payloads are sometimes a JSON string whose decoded value is the
+// actual JSON document. Invalid source-language escapes such as \' may also be
+// present in that outer transport layer. Formatting must repair the wrapper,
+// unwrap it, and pretty-print the inner object instead of re-stringifying the
+// inner document as one giant escaped line.
+const doubleEncoded = JSON.stringify('{"orders":[{"description":"Earn MQD\\\'s","id":1}]}');
+const doubleEncodedResult = formatJsonBestEffort(doubleEncoded);
+assert.equal(doubleEncodedResult.valid, true);
+assert.equal(doubleEncodedResult.bestEffort, false);
+assert.ok(doubleEncodedResult.lineCount > 3);
+assert.ok(!doubleEncodedResult.formatted.startsWith('"{\\"orders\\"'));
+assert.equal(doubleEncodedResult.parsed.orders[0].description, "Earn MQD's");
+assert.equal(doubleEncodedResult.parsed.orders[0].id, 1);
+
+// Clean double-encoded JSON must follow the same unwrap path even without any
+// repair being necessary.
+const cleanDoubleEncoded = formatJsonBestEffort(JSON.stringify('{"a":1,"nested":{"b":2}}'));
+assert.equal(cleanDoubleEncoded.valid, true);
+assert.deepEqual(cleanDoubleEncoded.parsed, { a: 1, nested: { b: 2 } });
+assert.ok(cleanDoubleEncoded.lineCount >= 5);
+
 // Trailing commas are common in copied logs/config snippets and should be
 // repaired when doing so results in unambiguous valid JSON.
 const trailingComma = formatJsonBestEffort('{"a":1,"nested":{"b":2,},}');
@@ -42,6 +63,11 @@ const escapedXml = formatXmlBestEffort('<root name=\\"Sai\\"><id>123</id></root>
 assert.equal(escapedXml.valid, true);
 assert.match(escapedXml.formatted, /name="Sai"/);
 assert.ok(escapedXml.formatted.includes('\n'));
+
+const wrappedXml = formatXmlBestEffort(JSON.stringify('<root><message>Earn MQD\\\'s</message></root>'));
+assert.equal(wrappedXml.valid, true);
+assert.match(wrappedXml.formatted, /<message>Earn MQD's<\/message>/);
+assert.ok(wrappedXml.formatted.includes('\n'));
 
 const brokenXml = formatXmlBestEffort('<root><customer><id>123</id></root>');
 assert.equal(brokenXml.valid, false);
