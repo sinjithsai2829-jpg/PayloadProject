@@ -57,6 +57,18 @@ export function decodeOneTransportLayer(input) {
     // quotes. Decode exactly one layer so an embedded JSON quote such as
     // \\\" becomes \" rather than becoming an unescaped quote inside a value.
     if (next === '\\') {
+      // Source-language/log serializers sometimes produce an invalid inner JSON
+      // escape such as \\' or \\&. After removing the transport layer that would
+      // become \' / \&, which JSON.parse correctly rejects. Because apostrophes
+      // and ampersands do not need JSON escaping, normalize the entire artifact
+      // in the same transport pass. A legitimate literal backslash remains
+      // represented by additional escaped backslashes and is handled normally.
+      const afterPair = text[index + 2];
+      if (afterPair === "'" || afterPair === '&') {
+        out.push(afterPair);
+        index += 2;
+        continue;
+      }
       out.push('\\');
       index += 1;
       continue;
