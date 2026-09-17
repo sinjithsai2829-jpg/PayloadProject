@@ -35,6 +35,8 @@ assert.ok(surfaceSource.includes("payloaddiff:word-wrap-layout"));
 
 // Folding must share the same visual-row geometry as line numbers/diffs while
 // Wrap is active instead of assuming one fixed-height row per logical line.
+// Format-specific structure detection is delegated to findFoldRanges for both
+// JSON and XML; the wrap geometry itself remains format-agnostic.
 assert.ok(foldingSource.includes('wrapApi.getVisibleLineRange'));
 assert.ok(foldingSource.includes('wrapApi.getLineMetrics'));
 assert.ok(foldingSource.includes('wrapApi.getTextMetrics'));
@@ -43,8 +45,8 @@ assert.ok(foldingSource.includes("'payloaddiff:word-wrap-layout'"));
 assert.ok(foldingSource.includes('rowTops'));
 assert.ok(foldingSource.includes('rowHeights'));
 assert.ok(foldingSource.includes('ensureProjectionLayout'));
-assert.ok(!foldingSource.includes("mode === 'json'"));
-assert.ok(!foldingSource.includes("mode === 'xml'"));
+assert.ok(foldingSource.includes('findFoldRanges(currentMode(), editor.value)'));
+assert.ok(foldingSource.includes("range.kind === 'element'"));
 
 for (const mode of ['json', 'xml']) {
   const snapshot = createComparisonSnapshot({
