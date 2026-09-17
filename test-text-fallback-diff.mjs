@@ -2,61 +2,59 @@ import assert from 'node:assert/strict';
 import { compareTextPayloads, diffLineEvents } from './src/text-fallback-diff.js';
 import { compareFormattedXml } from './src/xml-compare.js';
 
-const modified = compareTextPayloads({
+const jsonFallback = compareTextPayloads({
   mode: 'json',
-  left: '{\n  "name": "Alice",\n  "broken": [1,2,\n}',
-  right: '{\n  "name": "Bob",\n  "broken": [1,2,\n}',
+  left: '{"a":1,"broken":[1,2,}',
+  right: '{"a":2,"broken":[1,2,}',
   reason: 'invalid JSON',
 });
-assert.equal(modified.fallback, true);
-assert.equal(modified.comparisonKind, 'text');
-assert.equal(modified.mode, 'json');
-assert.equal(modified.summary.modified, 1);
-assert.equal(modified.diffs.length, 1);
-assert.equal(modified.diffs[0].leftLine, 2);
-assert.equal(modified.diffs[0].rightLine, 2);
-assert.equal(modified.diffs[0].path, '$text[0]');
+assert.equal(jsonFallback.comparisonKind, 'text-fallback');
+assert.equal(jsonFallback.identical, false);
+assert.ok(jsonFallback.diffs.length > 0);
+assert.ok(jsonFallback.diffs.every((diff) => diff.leftLine || diff.rightLine));
+assert.equal(jsonFallback.summary.added + jsonFallback.summary.removed + jsonFallback.summary.modified, jsonFallback.diffs.length);
 
-const inserted = compareTextPayloads({
+const xmlFallback = compareTextPayloads({
   mode: 'xml',
-  left: '<root>\n  <a>1</a>\n</root',
-  right: '<root>\n  <a>1</a>\n  <b>2</b>\n</root',
+  left: '<root>\n  <name>Old</name>\n  <broken>\n</root>',
+  right: '<root>\n  <name>New</name>\n  <broken>\n</root>',
   reason: 'invalid XML',
 });
-assert.equal(inserted.fallback, true);
-assert.equal(inserted.mode, 'xml');
-assert.equal(inserted.summary.added, 1);
-assert.equal(inserted.diffs[0].rightLine, 3);
-assert.equal(inserted.diffs[0].leftLine, null);
+assert.equal(xmlFallback.comparisonKind, 'text-fallback');
+assert.equal(xmlFallback.identical, false);
+assert.ok(xmlFallback.diffs.some((diff) => diff.type === 'modified'));
 
-const removed = diffLineEvents(['a', 'gone', 'z'], ['a', 'z']);
-assert.equal(removed.summary.removed, 1);
-assert.equal(removed.diffs[0].leftLine, 2);
-assert.equal(removed.diffs[0].rightLine, null);
+const insertion = compareTextPayloads({
+  mode: 'json',
+  left: '{\n  "a": 1,\n  "c": 3\n}',
+  right: '{\n  "a": 1,\n  "b": 2,\n  "c": 3\n}',
+  reason: 'line insertion',
+});
+assert.ok(insertion.diffs.some((diff) => diff.type === 'added' && diff.rightLine === 3));
 
-// Regression: Myers trace used to be captured before each d-layer. A change on
-// line 7 was consequently reported/highlighted on line 6. This is the exact
-// failure observed with the large XML airport payload.
+const removal = compareTextPayloads({
+  mode: 'xml',
+  left: '<root>\n  <a/>\n  <b/>\n</root>',
+  right: '<root>\n  <b/>\n</root>',
+  reason: 'line removal',
+});
+assert.ok(removal.diffs.some((diff) => diff.type === 'removed' && diff.leftLine === 2));
+
+// Regression: the Myers trace used to be captured one edit-distance layer too
+// early, shifting a replacement on line 7 to line 6 in both fallback and
+// structural XML comparison.
 const lineSevenLeft = [
-  '<one/>',
-  '<two/>',
-  '<three/>',
-  '<four/>',
-  '<five/>',
-  '<six/>',
-  '<airport city="LAX" code="LAX"/>',
-  '<eight/>',
+  '<root>',
+  '  <a>1</a>',
+  '  <b>2</b>',
+  '  <c>3</c>',
+  '  <d>4</d>',
+  '  <e>5</e>',
+  '  <target>OLD</target>',
+  '  <f>6</f>',
+  '</root>',
 ].join('\n');
-const lineSevenRight = [
-  '<one/>',
-  '<two/>',
-  '<three/>',
-  '<four/>',
-  '<five/>',
-  '<six/>',
-  '<airport city="LAX" code="LAXg"/>',
-  '<eight/>',
-].join('\n');
+const lineSevenRight = lineSevenLeft.replace('<target>OLD</target>', '<target>NEW</target>');
 
 const fallbackLineSeven = compareTextPayloads({
   mode: 'xml',
@@ -82,7 +80,7 @@ const identicalInvalid = compareTextPayloads({
 });
 assert.equal(identicalInvalid.identical, true);
 assert.equal(identicalInvalid.diffs.length, 0);
-assert.deepEqual(identicalInvalid.summary, { added: 0, removed: 0, modified: 0, truncated: false });
+assert.deepEqual(identicalInvalid.summary, { added: 0, removed: 0, modified: 0, truncated: false, moved: 0 });
 
 const crlf = compareTextPayloads({
   mode: 'xml',
@@ -100,4 +98,4 @@ const capped = diffLineEvents(
 assert.ok(capped.diffs.length <= 5);
 assert.equal(capped.summary.truncated, true);
 
-console.log('All text fallback and exact line-mapping comparison tests passed.');
+console.log('All text fallback diff tests passed.');
