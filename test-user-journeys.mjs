@@ -105,7 +105,7 @@ assert.ok(viewCoordinator.includes('MutationObserver'));
 assert.ok(enhancements.includes('activeSearchSurface'));
 assert.ok(!enhancements.includes("querySelector('.view-btn[data-view=\"tree\"]')?.click()"));
 assert.ok(saved.includes('window.PayloadDiffCompareSession?.getResult?.()'));
-assert.ok(saved.includes('comparison: comparisonResult'));
+assert.ok(saved.includes('comparison,'));
 
 const matrix = [];
 for (const mode of ['json', 'xml']) {
