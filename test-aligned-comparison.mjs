@@ -56,18 +56,28 @@ assert.equal('value="CDCP"'.slice(0, range.leftStart), 'value="C');
 
 const boot = fs.readFileSync('./src/boot.js', 'utf8');
 const ui = fs.readFileSync('./src/aligned-compare-view.js', 'utf8');
+const foldBridge = fs.readFileSync('./src/aligned-fold-bridge.js', 'utf8');
 const coordinator = fs.readFileSync('./src/view-surface-coordinator.js', 'utf8');
 const editableCompare = fs.readFileSync('./src/editable-compare.js', 'utf8');
 
 assert.ok(boot.includes("import './aligned-compare-view.js'"));
+assert.ok(boot.includes("import './aligned-fold-bridge.js'"));
 assert.ok(ui.includes('no corresponding line'));
 assert.ok(ui.includes('aligned-compare-row'));
 assert.ok(ui.includes('placeholderRows'));
 assert.ok(ui.includes('PayloadDiffCompareSession?.goToIndex'));
 assert.ok(editableCompare.includes('goToIndex: (index) => selectAbsoluteDiff(index)'));
 assert.ok(editableCompare.includes('PayloadDiffAlignedCompare?.revealDiff'));
+assert.ok(editableCompare.includes('structuralDiffs'));
 assert.ok(coordinator.includes('aligned-compare-view'));
 assert.ok(!ui.includes("mode === 'json'"));
 assert.ok(!ui.includes("mode === 'xml'"));
+
+// The same code-fold gutter is shared by JSON and XML. During aligned compare
+// the bridge raises that gutter above the alignment surface; once a user
+// collapses a block, the existing folded projection takes over until expanded.
+assert.ok(foldBridge.includes('.aligned-compare-active:not(.folding-active) > .code-fold-gutter'));
+assert.ok(foldBridge.includes('.aligned-compare-active.folding-active > .fold-code-view'));
+assert.ok(foldBridge.includes('PayloadDiffCodeFolding?.refresh'));
 
 console.log('All aligned comparison tests passed.');
