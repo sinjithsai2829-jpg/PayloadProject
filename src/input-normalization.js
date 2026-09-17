@@ -51,18 +51,30 @@ export function decodeOneTransportLayer(input) {
       continue;
     }
 
+    // Treat a whole slash run before a quote as one transport token. Ordinary
+    // structural quotes arrive as \" and become ". Quotes that were literal
+    // characters inside an already-escaped JSON string can arrive with several
+    // backslashes (for example seven after log/source serialization); those
+    // must become exactly \" in the recovered JSON text, not \\\" which would
+    // change the parsed value by introducing a literal backslash.
+    let slashEnd = index;
+    while (slashEnd < text.length && text[slashEnd] === '\\') slashEnd += 1;
+    const slashCount = slashEnd - index;
+    const afterSlashes = text[slashEnd];
+    if (afterSlashes === '"') {
+      if (slashCount > 1) out.push('\\');
+      out.push('"');
+      index = slashEnd;
+      continue;
+    }
+
     const next = text[index + 1];
 
-    // One escaped transport layer doubles literal backslashes and escapes JSON
-    // quotes. Decode exactly one layer so an embedded JSON quote such as
-    // \\\" becomes \" rather than becoming an unescaped quote inside a value.
+    // One escaped transport layer doubles literal backslashes. Source-language
+    // and logger serializers also commonly produce invalid inner JSON escapes
+    // such as \\' or \\&. Apostrophes and ampersands do not require escaping in
+    // JSON, so normalize those transport artifacts while decoding the layer.
     if (next === '\\') {
-      // Source-language/log serializers sometimes produce an invalid inner JSON
-      // escape such as \\' or \\&. After removing the transport layer that would
-      // become \' / \&, which JSON.parse correctly rejects. Because apostrophes
-      // and ampersands do not need JSON escaping, normalize the entire artifact
-      // in the same transport pass. A legitimate literal backslash remains
-      // represented by additional escaped backslashes and is handled normally.
       const afterPair = text[index + 2];
       if (afterPair === "'" || afterPair === '&') {
         out.push(afterPair);
@@ -70,11 +82,6 @@ export function decodeOneTransportLayer(input) {
         continue;
       }
       out.push('\\');
-      index += 1;
-      continue;
-    }
-    if (next === '"') {
-      out.push('"');
       index += 1;
       continue;
     }
