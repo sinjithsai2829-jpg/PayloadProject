@@ -25,6 +25,7 @@ import './aligned-compare-surface-guard.js';
 import './compare-surface-guard.js';
 import './inline-diff-highlights.js';
 import './code-folding.js';
+import './aligned-fold-bridge.js';
 import './tree-diff-navigation.js';
 import './diagnostics.js';
 // Correlated deep tracing remains available as a source module/test utility but

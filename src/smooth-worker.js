@@ -1,8 +1,8 @@
 import { compareJsonValues, attachPrettyJsonLineNumbers } from './fast-engine.js';
-import { formatJsonBestEffort, formatXmlBestEffort, recoverJsonForFormatting } from './resilient-format.js';
+import { formatJsonBestEffort, formatXmlBestEffort, recoverJsonForFormatting } from './format-recovery.js';
 import { compareTextPayloads } from './text-fallback-diff.js';
-import { compareFormattedXml } from './xml-compare.js';
-import { annotateMovedLineDiffs, normalizeCompareOptions } from './compare-normalization.js';
+import { compareFormattedCode } from './formatted-code-compare.js';
+import { normalizeCompareOptions } from './compare-normalization.js';
 import { jsonComparisonFidelityIssue } from './compare-fidelity.js';
 
 let revision = 0;
@@ -74,23 +74,33 @@ self.onmessage = ({ data }) => {
         return;
       }
 
-      const left = leftFormatted.parsed;
-      const right = rightFormatted.parsed;
-      const compared = compareJsonValues(left, right, undefined, options);
-      const ordered = attachPrettyJsonLineNumbers(left, right, compared.diffs);
-      const leftLines = JSON.stringify(left, null, 2).split('\n');
-      const rightLines = JSON.stringify(right, null, 2).split('\n');
-      const moved = annotateMovedLineDiffs(ordered, leftLines, rightLines, options);
+      // Keep a structural JSON result for Tree view, but drive Code view from a
+      // formatted line/block diff. This mirrors the way a user expects a normal
+      // side-by-side editor comparison to behave: insertions make alignment gaps
+      // and nearby replacements become modifications instead of unrelated
+      // removed/added JSON paths.
+      const structural = compareJsonValues(leftFormatted.parsed, rightFormatted.parsed, undefined, options);
+      const structuralDiffs = attachPrettyJsonLineNumbers(
+        leftFormatted.parsed,
+        rightFormatted.parsed,
+        structural.diffs,
+      );
+      const codeCompared = compareFormattedCode(
+        'json',
+        leftFormatted.formatted,
+        rightFormatted.formatted,
+        options,
+      );
+
       self.postMessage({
         id,
         ok: true,
         result: {
-          ...compared,
-          ordered: moved.diffs,
-          summary: { ...compared.summary, moved: moved.movedPairs },
-          movedPairs: moved.movedPairs,
-          compareOptions: options,
+          ...codeCompared,
+          structuralDiffs,
+          structuralSummary: structural.summary,
           comparisonKind: 'structural',
+          codeComparisonKind: 'formatted-lines',
           fallback: false,
           structuralIssues: [],
           recovered: leftFormatted.repaired || rightFormatted.repaired,
@@ -129,7 +139,7 @@ self.onmessage = ({ data }) => {
       return;
     }
 
-    const compared = compareFormattedXml(leftFormatted.formatted, rightFormatted.formatted, options);
+    const compared = compareFormattedCode('xml', leftFormatted.formatted, rightFormatted.formatted, options);
     self.postMessage({
       id,
       ok: true,
@@ -137,6 +147,7 @@ self.onmessage = ({ data }) => {
         ...compared,
         ordered: compared.diffs || [],
         comparisonKind: 'structural',
+        codeComparisonKind: 'formatted-lines',
         fallback: false,
         structuralIssues: [],
         recovered: leftFormatted.repaired || rightFormatted.repaired,

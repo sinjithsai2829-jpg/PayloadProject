@@ -20,6 +20,7 @@ let workerSeq = 0;
 let latestRequest = 0;
 let currentDiffIndex = 0;
 let orderedDiffs = [];
+let structuralDiffs = [];
 let lastGoodSummary = null;
 let lastGoodElapsed = 0;
 let lastComparisonKind = 'structural';
@@ -47,6 +48,7 @@ window.PayloadDiffCompareSession = {
     fallbackReason: lastFallbackReason,
     diffs: orderedDiffs.map(({ path, type, leftLine, rightLine }) => ({ path, type, leftLine, rightLine })),
     ordered: orderedDiffs.map(({ path, type, leftLine, rightLine }) => ({ path, type, leftLine, rightLine })),
+    structuralDiffs: structuralDiffs.map(({ path, type, leftLine, rightLine }) => ({ path, type, leftLine, rightLine })),
     summary: { ...lastGoodSummary },
     identical: lastGoodSummary.added + lastGoodSummary.removed + lastGoodSummary.modified === 0,
     elapsedMs: lastGoodElapsed,
@@ -269,6 +271,7 @@ async function refreshLiveComparison({ preserveNavigator }) {
     invalidSides = [];
     clearInvalidPaneMarkers();
     orderedDiffs = result.ordered || result.diffs || [];
+    structuralDiffs = Array.isArray(result.structuralDiffs) ? result.structuralDiffs : [];
     lastGoodSummary = result.summary;
     lastGoodElapsed = result.elapsedMs;
     lastComparisonKind = result.comparisonKind === 'text' || result.fallback === true ? 'text' : 'structural';
@@ -413,6 +416,7 @@ function publishCoreComparisonState(identical = null) {
     detail: {
       mode: activeMode,
       diffs: orderedDiffs.map(({ path, type, leftLine, rightLine }) => ({ path, type, leftLine, rightLine })),
+      structuralDiffs: structuralDiffs.map(({ path, type, leftLine, rightLine }) => ({ path, type, leftLine, rightLine })),
       summary: lastGoodSummary,
       identical: identical == null ? total === 0 : identical,
       elapsedMs: lastGoodElapsed,
@@ -535,6 +539,7 @@ function resetLiveCompare() {
   compareActive = false;
   activeMode = currentMode();
   orderedDiffs = [];
+  structuralDiffs = [];
   lastGoodSummary = null;
   lastGoodElapsed = 0;
   lastComparisonKind = 'structural';
