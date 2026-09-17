@@ -30,17 +30,22 @@ export function formatJsonBestEffort(input) {
   let lastError = null;
   for (const attempt of attempts) {
     try {
-      const parsed = JSON.parse(attempt.text);
+      const decoded = parseJsonDocument(attempt.text);
+      const parsed = decoded.value;
       const formatted = JSON.stringify(parsed, null, 2);
+      const notes = [
+        ...attempt.notes,
+        ...(decoded.layers ? [`unwrapped ${decoded.layers} JSON-string transport layer${decoded.layers === 1 ? '' : 's'}`] : []),
+      ];
       return {
         mode: 'json',
         formatted,
         parsed,
         valid: true,
         bestEffort: false,
-        repaired: attempt.text !== original,
-        repairNote: attempt.notes.length
-          ? `Normalized pasted JSON: ${unique(attempt.notes).join('; ')}.`
+        repaired: attempt.text !== original || decoded.layers > 0,
+        repairNote: notes.length
+          ? `Normalized pasted JSON: ${unique(notes).join('; ')}.`
           : '',
         warning: '',
         lineCount: countLines(formatted),
@@ -53,7 +58,7 @@ export function formatJsonBestEffort(input) {
   }
 
   const displayText = attempts[attempts.length - 1]?.text || recovered.text || original;
-  const formatted = prettyJsonLoose(displayText);
+  const formatted = prettyJsonLoose(unwrapJsonTextForLooseFormatting(displayText));
   const issue = lastError?.message || 'JSON syntax could not be validated.';
 
   return {
@@ -76,7 +81,14 @@ export function formatXmlBestEffort(input) {
   const original = String(input ?? '').trim();
   if (!original) throw new Error('Nothing to format. Paste or upload a payload first.');
 
-  const cleaned = normalizeEscapedXml(original);
+  // XML copied from logs/APIs is often wrapped in a JSON string. If that outer
+  // transport string contains source-language escapes such as \' the JSON
+  // decoder cannot unwrap it. Repair only the quoted transport wrapper first;
+  // ordinary raw XML is left untouched.
+  const wrappedTransport = looksLikeQuotedXmlTransport(original)
+    ? repairKnownInvalidJsonEscapes(original)
+    : { text: original, changed: false };
+  const cleaned = normalizeEscapedXml(wrappedTransport.text);
   let valid = true;
   let warning = '';
   try {
@@ -87,15 +99,16 @@ export function formatXmlBestEffort(input) {
   }
 
   const formatted = prettyXml(cleaned);
+  const normalizedTransport = wrappedTransport.changed || cleaned !== original;
   return {
     mode: 'xml',
     formatted,
     parsed: null,
     valid,
     bestEffort: !valid,
-    repaired: cleaned !== original || formatted !== original,
+    repaired: normalizedTransport || formatted !== original,
     repairNote: valid
-      ? (cleaned !== original ? 'Normalized escaped XML before formatting.' : '')
+      ? (normalizedTransport ? 'Normalized escaped XML transport data before formatting.' : '')
       : `Best-effort formatted XML. The payload still has a syntax issue: ${warning}`,
     warning,
     lineCount: countLines(formatted),
@@ -340,6 +353,56 @@ export function prettyJsonLoose(input) {
 
   if (current.trim()) newline();
   return lines.join('\n');
+}
+
+function parseJsonDocument(text) {
+  let value = JSON.parse(text);
+  let layers = 0;
+
+  // A payload copied from an API/log can itself be serialized as a JSON string:
+  // "{\"orders\":[...]}". Parsing only once returns a JavaScript string, and
+  // JSON.stringify then reproduces the same one-line escaped text. Keep
+  // unwrapping only while the decoded string clearly contains a JSON document.
+  while (typeof value === 'string' && layers < 3) {
+    const nested = value.trim();
+    if (!looksLikeJsonDocumentText(nested)) break;
+    value = JSON.parse(nested);
+    layers += 1;
+  }
+
+  return { value, layers };
+}
+
+function unwrapJsonTextForLooseFormatting(input) {
+  let text = String(input ?? '').trim();
+
+  // Even if the inner JSON is malformed, a valid outer JSON-string transport
+  // layer can still be removed so best-effort formatting sees braces/arrays
+  // instead of one giant quoted line.
+  for (let layer = 0; layer < 3; layer += 1) {
+    let value;
+    try {
+      value = JSON.parse(text);
+    } catch (_) {
+      break;
+    }
+    if (typeof value !== 'string') break;
+    const nested = value.trim();
+    if (!looksLikeJsonDocumentText(nested)) break;
+    text = nested;
+  }
+
+  return text;
+}
+
+function looksLikeJsonDocumentText(input) {
+  const text = String(input ?? '').trim();
+  return text.startsWith('{') || text.startsWith('[');
+}
+
+function looksLikeQuotedXmlTransport(input) {
+  const text = String(input ?? '').trim();
+  return text.length >= 2 && text.startsWith('"') && text.endsWith('"') && text.includes('<');
 }
 
 function looksLikeTransportEscapedJson(input) {
