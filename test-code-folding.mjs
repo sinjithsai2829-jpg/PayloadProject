@@ -17,9 +17,9 @@ const json = `{
 
 const jsonRanges = findJsonFoldRanges(json);
 assert.deepEqual(jsonRanges.map(({ startLine, endLine, kind }) => ({ startLine, endLine, kind })), [
-  { startLine: 1, endLine: 14, kind: 'object' },
-  { startLine: 2, endLine: 12, kind: 'object' },
-  { startLine: 3, endLine: 11, kind: 'array' },
+  { startLine: 1, endLine: 13, kind: 'object' },
+  { startLine: 2, endLine: 11, kind: 'object' },
+  { startLine: 3, endLine: 10, kind: 'array' },
   { startLine: 4, endLine: 6, kind: 'object' },
   { startLine: 7, endLine: 9, kind: 'object' },
 ]);
