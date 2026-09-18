@@ -156,10 +156,10 @@ els.editors.forEach((editor, index) => {
     state.panes[index].formatted = '';
     state.panes[index].parsed = null;
 
-    // Editing valid/temporarily-invalid JSON is part of the same comparison
-    // session. The live comparison module owns refresh while that session is
-    // active, so the core must not destroy the comparison bar on each keypress.
-    if (!isLiveJsonComparisonActive()) clearComparison();
+    // Editing valid/temporarily-invalid JSON or XML is part of the same live
+    // comparison session. The live comparison module owns refresh while that
+    // session is active, so the core must not destroy the compare UI first.
+    if (!isLiveComparisonActive()) clearComparison();
     updateMeta(index);
   });
 });
@@ -190,8 +190,9 @@ window.addEventListener('payloaddiff:live-compare-updated', (event) => {
   }
 });
 
-function isLiveJsonComparisonActive() {
-  return state.mode === 'json' && !!window.PayloadDiffCompareSession?.isActive?.();
+function isLiveComparisonActive() {
+  return !!window.PayloadDiffCompareSession?.isActive?.()
+    && window.PayloadDiffCompareSession?.getMode?.() === state.mode;
 }
 
 function switchMode(mode) {
