@@ -148,6 +148,15 @@ function installGlobalHooks() {
     scheduleFoldRender(1);
   });
 
+  window.addEventListener('payloaddiff:diff-selection-changed', (event) => {
+    const nextIndex = Number(event.detail?.currentDiffIndex);
+    if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex === latestDiffIndex) return;
+    latestDiffIndex = nextIndex;
+    revealCurrentDifference();
+    scheduleFoldRender(0);
+    scheduleFoldRender(1);
+  });
+
   window.addEventListener('payloaddiff:comparison-reset', () => {
     latestDiffs = [];
     latestDiffIndex = -1;
