@@ -19,6 +19,14 @@ window.addEventListener('payloaddiff:live-compare-updated', (event) => {
   scheduleAll();
 });
 
+window.addEventListener('payloaddiff:diff-selection-changed', (event) => {
+  const nextIndex = Number(event.detail?.currentDiffIndex);
+  if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex === currentDiffIndex) return;
+  currentDiffIndex = nextIndex;
+  refreshCurrentSegments();
+  scheduleAll();
+});
+
 window.addEventListener('payloaddiff:comparison-reset', clearAll);
 document.querySelector('#clearBtn')?.addEventListener('click', () => requestAnimationFrame(clearAll));
 document.querySelectorAll('.mode-btn').forEach((button) => button.addEventListener('click', () => requestAnimationFrame(clearAll)));
@@ -103,7 +111,8 @@ function addPairedSegments(leftIndex, rightIndex, leftLine, rightLine, kind) {
   const leftText = lineCache[0][leftLine - 1] ?? '';
   const rightText = lineCache[1][rightLine - 1] ?? '';
   const range = changedRange(leftText, rightText);
-  const current = currentDiffIndex === leftIndex || currentDiffIndex === rightIndex;
+  const diffIndexes = leftIndex === rightIndex ? [leftIndex] : [leftIndex, rightIndex];
+  const current = diffIndexes.includes(currentDiffIndex);
 
   if (range.leftEnd > range.leftStart) {
     visualSegments[0].push({
@@ -111,6 +120,7 @@ function addPairedSegments(leftIndex, rightIndex, leftLine, rightLine, kind) {
       start: range.leftStart,
       end: range.leftEnd,
       type: kind === 'replacement' ? 'removed' : 'modified',
+      diffIndexes,
       current,
     });
   }
@@ -120,6 +130,7 @@ function addPairedSegments(leftIndex, rightIndex, leftLine, rightLine, kind) {
       start: range.rightStart,
       end: range.rightEnd,
       type: kind === 'replacement' ? 'added' : 'modified',
+      diffIndexes,
       current,
     });
   }
@@ -134,8 +145,17 @@ function addWholeContentSegment(side, line, type, diffIndex) {
     start: first,
     end,
     type,
+    diffIndexes: [diffIndex],
     current: currentDiffIndex === diffIndex,
   });
+}
+
+function refreshCurrentSegments() {
+  for (const side of visualSegments) {
+    for (const segment of side) {
+      segment.current = Array.isArray(segment.diffIndexes) && segment.diffIndexes.includes(currentDiffIndex);
+    }
+  }
 }
 
 export function changedRange(left, right) {
