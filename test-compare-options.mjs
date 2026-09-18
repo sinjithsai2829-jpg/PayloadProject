@@ -99,6 +99,8 @@ assert.ok(visual.includes('moved-from'));
 assert.ok(visual.includes('moved-to'));
 assert.ok(visual.includes('diff-block-start'));
 assert.ok(visual.includes('diff-block-end'));
+assert.ok(!visual.includes('buildAlignedRows('), 'visual decoration must reuse the persistent alignment model');
+assert.ok(!visual.includes('annotateMovedLineDiffs('), 'move metadata must be computed once in the comparison engine');
 assert.ok(boot.includes("import './compare-options-ui.js'"));
 assert.ok(boot.includes("import './compare-options-enhancements.js'"));
 assert.ok(smooth.includes('normalizeCompareOptions(payload.options || {})'));
