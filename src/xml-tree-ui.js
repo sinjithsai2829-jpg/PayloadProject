@@ -98,6 +98,20 @@ window.addEventListener('payloaddiff:live-compare-updated', (event) => {
   }
 });
 
+window.addEventListener('payloaddiff:diff-selection-changed', (event) => {
+  if (event.detail?.mode !== 'xml') return;
+  const current = event.detail?.diff || null;
+  state[0].currentDiffLine = current ? (current.leftLine || current.rightLine || null) : null;
+  state[1].currentDiffLine = current ? (current.rightLine || current.leftLine || null) : null;
+
+  for (let index = 0; index < 2; index += 1) {
+    if (!isXmlMode() || !panes[index]?.querySelector('.view-btn[data-view="tree"]')?.classList.contains('active')) continue;
+    const line = state[index].currentDiffLine;
+    if (line) revealXmlDifference(index, line);
+    else renderXmlTree(index);
+  }
+});
+
 window.addEventListener('payloaddiff:comparison-reset', () => {
   state.forEach((paneState) => {
     paneState.diffLines = [];
