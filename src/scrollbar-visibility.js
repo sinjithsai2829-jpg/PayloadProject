@@ -84,6 +84,7 @@ function installGlobalHooks() {
     'payloaddiff:word-wrap-changed',
     'payloaddiff:word-wrap-layout',
     'payloaddiff:syntax-issues-updated',
+    'payloaddiff:content-layout-changed',
   ];
   for (const type of events) {
     window.addEventListener(type, () => panes.forEach((_, index) => scheduleUpdate(index, type)));

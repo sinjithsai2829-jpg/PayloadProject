@@ -3,6 +3,8 @@ import fs from 'node:fs';
 
 const scrollbar = fs.readFileSync('./src/scrollbar-visibility.js', 'utf8');
 const aligned = fs.readFileSync('./src/aligned-compare-view.js', 'utf8');
+const horizontal = fs.readFileSync('./src/editor-scroll-geometry.js', 'utf8');
+const main = fs.readFileSync('./src/main.js', 'utf8');
 
 // Native macOS/Chrome overlay scrollbars may auto-hide even when CSS colors are
 // correct. PayloadDiff therefore owns a persistent rail/thumb for every visible
@@ -37,6 +39,10 @@ assert.ok(scrollbar.includes('.editor-wrap.pd-scrollbar-present .syntax-error-ra
 assert.ok(scrollbar.includes("window.PayloadDiffScrollbars"));
 assert.ok(scrollbar.includes("payloaddiff:scrollbar-state-changed"));
 assert.ok(scrollbar.includes("scrollbar.state-changed"));
+assert.ok(scrollbar.includes("'payloaddiff:content-layout-changed'"));
+assert.ok(horizontal.includes("'payloaddiff:content-layout-changed'"));
+assert.ok(main.includes("new CustomEvent('payloaddiff:content-layout-changed'"));
+assert.ok(main.includes('requestAnimationFrame(() => {\n    refresh();\n    requestAnimationFrame(refresh);'), 'programmatic formatting should refresh scrollbar geometry after layout settles');
 
 // Native scrollbars remain styled as a fallback and for horizontal movement.
 assert.ok(scrollbar.includes('scrollbar-color'));

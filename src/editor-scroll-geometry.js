@@ -86,6 +86,7 @@ function installGlobalHooks() {
     'payloaddiff:word-wrap-changed',
     'payloaddiff:word-wrap-layout',
     'payloaddiff:syntax-issues-updated',
+    'payloaddiff:content-layout-changed',
     'payloaddiff:fold-state-changed',
   ];
 

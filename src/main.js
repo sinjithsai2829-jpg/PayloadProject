@@ -235,9 +235,10 @@ async function formatBoth() {
   setBusy(true, 'Formatting large payloads…');
   try {
     for (const index of targets) {
-      await formatPane(index);
+      await formatPane(index, detectedPaneMode(index));
     }
     setStatus('Formatting complete.');
+    refreshScrollChrome();
   } catch (error) {
     setStatus(error.message, true);
   } finally {
@@ -245,17 +246,43 @@ async function formatBoth() {
   }
 }
 
-async function formatPane(index) {
+async function formatPane(index, mode = state.mode) {
   const text = els.editors[index].value;
-  const result = await runWorker('format', { mode: state.mode, text });
+  const result = await runWorker('format', { mode, text, paneIndex: index });
   const pane = state.panes[index];
   pane.raw = result.formatted;
   pane.formatted = result.formatted;
-  pane.parsed = result.parsed ?? null;
+  pane.parsed = mode === 'json' ? (result.parsed ?? null) : null;
   els.editors[index].value = result.formatted;
   updateMeta(index, result);
-  if (state.mode === 'json' && pane.view === 'tree') renderTree(index);
+  if (mode === 'json' && pane.view === 'tree') renderTree(index);
+  if (mode !== 'json' && pane.view === 'tree') switchView(index, 'code');
   if (result.repaired && result.repairNote) setStatus(result.repairNote);
+  refreshScrollChrome(index);
+}
+
+function detectedPaneMode(index) {
+  const text = els.editors[index]?.value || '';
+  if (!text.trim()) return state.mode;
+  try {
+    const detected = window.PayloadDiffAutoDetect?.detect?.(text, { paneIndex: index });
+    if (detected?.mode && detected.confidence >= 0.8) return detected.mode;
+  } catch (_) {}
+  return state.mode;
+}
+
+function refreshScrollChrome(index = null) {
+  window.dispatchEvent(new CustomEvent('payloaddiff:content-layout-changed', {
+    detail: { paneIndex: index },
+  }));
+  const refresh = () => {
+    window.PayloadDiffScrollbars?.refresh?.(index);
+    window.PayloadDiffHorizontalScrollbars?.refresh?.(index);
+  };
+  requestAnimationFrame(() => {
+    refresh();
+    requestAnimationFrame(refresh);
+  });
 }
 
 async function compareBoth() {
@@ -617,6 +644,7 @@ function setBusy(busy, message = '') {
   [els.format, els.compare, els.clear].forEach((button) => button.disabled = busy);
   document.body.classList.toggle('busy', busy);
   if (message) setStatus(message);
+  if (!busy) refreshScrollChrome();
 }
 
 function setStatus(message, error = false) {
