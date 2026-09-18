@@ -1,3 +1,5 @@
+import { nearestStructuralDiff } from './diff-structural-mapping.js';
+
 const panes = [...document.querySelectorAll('.pane')];
 const trees = [document.querySelector('#tree0'), document.querySelector('#tree1')];
 
@@ -34,32 +36,9 @@ function revealCurrentStructuralDifference() {
 
   for (let paneIndex = 0; paneIndex < panes.length; paneIndex += 1) {
     if (!treeIsActive(paneIndex)) continue;
-    const structural = nearestStructuralDiff(currentCodeDiff, paneIndex);
+    const structural = nearestStructuralDiff(structuralDiffs, currentCodeDiff, paneIndex);
     if (structural?.path) revealJsonTreePath(paneIndex, structural.path, revision);
   }
-}
-
-function nearestStructuralDiff(codeDiff, paneIndex) {
-  const primary = paneIndex === 0 ? Number(codeDiff.leftLine) : Number(codeDiff.rightLine);
-  const fallback = paneIndex === 0 ? Number(codeDiff.rightLine) : Number(codeDiff.leftLine);
-  const target = Number.isInteger(primary) && primary > 0 ? primary : fallback;
-  if (!Number.isInteger(target) || target <= 0) return structuralDiffs[0] || null;
-
-  let best = null;
-  let bestDistance = Infinity;
-  for (const diff of structuralDiffs) {
-    const own = paneIndex === 0 ? Number(diff.leftLine) : Number(diff.rightLine);
-    const other = paneIndex === 0 ? Number(diff.rightLine) : Number(diff.leftLine);
-    const line = Number.isInteger(own) && own > 0 ? own : other;
-    if (!Number.isInteger(line) || line <= 0) continue;
-    const distance = Math.abs(line - target);
-    if (distance < bestDistance) {
-      best = diff;
-      bestDistance = distance;
-      if (distance === 0) break;
-    }
-  }
-  return best;
 }
 
 async function revealJsonTreePath(paneIndex, path, revision) {
