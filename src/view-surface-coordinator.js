@@ -8,6 +8,7 @@ for (let index = 0; index < panes.length; index += 1) {
 
 function installPaneCoordinator(index) {
   const pane = panes[index];
+  let lastView = '';
   const tabs = pane?.querySelector('.view-tabs');
   const wrap = pane?.querySelector('.editor-wrap');
   if (!pane || !tabs || !wrap) return;
@@ -20,11 +21,15 @@ function installPaneCoordinator(index) {
 
     wrap.classList.toggle('tree-surface-active', treeActive);
     wrap.classList.toggle('code-surface-active', !treeActive && codeActive);
-    pane.dataset.activeView = treeActive ? 'tree' : 'code';
+    const view = treeActive ? 'tree' : 'code';
+    pane.dataset.activeView = view;
 
-    window.dispatchEvent(new CustomEvent('payloaddiff:view-surface-synced', {
-      detail: { paneIndex: index, view: treeActive ? 'tree' : 'code' },
-    }));
+    if (view !== lastView) {
+      lastView = view;
+      window.dispatchEvent(new CustomEvent('payloaddiff:view-surface-synced', {
+        detail: { paneIndex: index, view },
+      }));
+    }
   };
 
   const observer = new MutationObserver((mutations) => {
