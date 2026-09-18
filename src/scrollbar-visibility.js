@@ -182,7 +182,16 @@ function update(index, reason = 'update') {
   const hasHorizontal = scroller.scrollWidth - scroller.clientWidth > 2 && getComputedStyle(scroller).overflowX !== 'hidden';
   rail.style.bottom = hasHorizontal ? '19px' : '4px';
 
-  const trackHeight = Math.max(1, rail.clientHeight);
+  const measuredTrackHeight = rail.clientHeight;
+  if (measuredTrackHeight < 2) {
+    // A surface can become scrollable one frame before the host rail receives
+    // its final layout. Keep the rail logically present and retry after layout
+    // instead of publishing a transient "missing scrollbar" state.
+    requestAnimationFrame(() => scheduleUpdate(index, 'layout-settled'));
+    return;
+  }
+
+  const trackHeight = measuredTrackHeight;
   const ratio = Math.min(1, scroller.clientHeight / Math.max(1, scroller.scrollHeight));
   const thumbHeight = Math.min(trackHeight, Math.max(MIN_THUMB_PX, trackHeight * ratio));
   const travel = Math.max(0, trackHeight - thumbHeight);
