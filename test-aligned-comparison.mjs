@@ -83,5 +83,8 @@ assert.ok(!ui.includes("mode === 'xml'"));
 assert.ok(foldBridge.includes('.aligned-compare-active:not(.folding-active) > .code-fold-gutter'));
 assert.ok(foldBridge.includes('.aligned-compare-active.folding-active > .fold-code-view'));
 assert.ok(foldBridge.includes('PayloadDiffCodeFolding?.refresh'));
+const codeFolding = fs.readFileSync('./src/code-folding.js', 'utf8');
+assert.ok(codeFolding.includes('scrollSurfaceToOriginalLine(index, line)'));
+assert.ok(!codeFolding.includes('state.collapsed.delete(startLine)'));
 
 console.log('All aligned comparison tests passed.');
