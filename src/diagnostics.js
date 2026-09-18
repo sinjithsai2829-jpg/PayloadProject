@@ -35,6 +35,7 @@ let longTaskTotalMs = 0;
 let layoutShiftScore = 0;
 let resizeCount = 0;
 let mutationFrame = 0;
+let mutationTimer = 0;
 
 installControls();
 installGlobalErrorCapture();
@@ -365,10 +366,14 @@ function installStateObservers() {
 
   const observer = new MutationObserver((mutations) => {
     if (!mutations.some(isRelevantMutation)) return;
-    if (mutationFrame) return;
+    if (mutationFrame) cancelAnimationFrame(mutationFrame);
     mutationFrame = requestAnimationFrame(() => {
       mutationFrame = 0;
-      checkpoint('dom-state-changed', 'debug', { onlyIfChanged: true });
+      clearTimeout(mutationTimer);
+      mutationTimer = setTimeout(() => {
+        mutationTimer = 0;
+        checkpoint('dom-state-changed', 'debug', { onlyIfChanged: true });
+      }, 120);
     });
   });
 
@@ -407,7 +412,7 @@ function markOperation(name) {
     anomalies: detectAnomalies(),
   });
 
-  for (const delay of [0, 50, 250, 1000, 3000]) {
+  for (const delay of [0, 100, 1000, 3000]) {
     setTimeout(() => {
       const busy = document.body.classList.contains('busy');
       log(delay >= 3000 && busy ? 'warn' : 'debug', `${name}.click.checkpoint`, {
@@ -415,7 +420,7 @@ function markOperation(name) {
         delayMs: delay,
         elapsedMs: round(performance.now() - started),
         busy,
-        snapshot: delay >= 250 ? captureSnapshot() : captureCompactSnapshot(),
+        snapshot: delay >= 1000 ? captureSnapshot() : captureCompactSnapshot(),
         anomalies: detectAnomalies(),
       });
     }, delay);
@@ -703,11 +708,17 @@ function detectAnomalies() {
     const view = activeView(index);
     const editorState = captureElementState(editor);
     const treeState = captureElementState(pane.querySelector('.tree-view'));
+    const foldState = captureElementState(pane.querySelector('.fold-code-view'));
+    const alignedState = captureElementState(pane.querySelector('.aligned-compare-view'));
     const overlayState = captureElementState(pane.querySelector('.editor-diff-overlay'));
     const scroller = visibleScroller(index);
     const scrollbar = scrollbarState(index);
+    const codeSurfaceVisible = editorState.visible || foldState.visible || alignedState.visible;
 
-    if (view === 'code' && !editorState.visible) {
+    // Code view can legitimately render through the folded/aligned projection
+    // while the canonical textarea is hidden. Only warn when no code surface
+    // is visible at all.
+    if (view === 'code' && !codeSurfaceVisible) {
       anomalies.push({ code: 'CODE_SELECTED_EDITOR_HIDDEN', pane: index + 1 });
     }
     if (view === 'tree' && treeState.exists && !treeState.visible) {
