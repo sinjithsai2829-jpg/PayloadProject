@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
+const indexHtml = await readFile(new URL('./index.html', import.meta.url), 'utf8');
 const boot = await readFile(new URL('./src/boot.js', import.meta.url), 'utf8');
 const main = await readFile(new URL('./src/main.js', import.meta.url), 'utf8');
 const live = await readFile(new URL('./src/editable-compare.js', import.meta.url), 'utf8');
@@ -18,6 +19,10 @@ const xmlTreeUi = await readFile(new URL('./src/xml-tree-ui.js', import.meta.url
 const xmlTreeWorker = await readFile(new URL('./src/xml-tree-worker.js', import.meta.url), 'utf8');
 const treeSearchWorker = await readFile(new URL('./src/tree-search-worker.js', import.meta.url), 'utf8');
 const viewSurface = await readFile(new URL('./src/view-surface-coordinator.js', import.meta.url), 'utf8');
+
+assert.ok(indexHtml.includes('href="./src/style.css"'));
+assert.ok(indexHtml.includes('src="./src/boot.js"'));
+assert.ok(!main.includes("import './style.css'"), 'static hosting must load CSS from index.html rather than a JS module import');
 
 assert.ok(boot.includes("./view-surface-coordinator.js"));
 assert.ok(boot.includes("./editable-compare.js"));
