@@ -156,22 +156,26 @@ function rebuildDecorations() {
   moveRows = [new Map(), new Map()];
   if (!model?.rows?.length) return;
 
+  const options = window.PayloadDiffCompareOptions?.get?.() || {};
   const changedRows = model.rows
     .map((row, index) => ({ row, index }))
     .filter(({ row }) => row.diffIndexes.length > 0);
 
-  let blockStartPosition = 0;
-  for (let position = 1; position <= changedRows.length; position += 1) {
-    const previous = changedRows[position - 1];
-    const current = changedRows[position];
-    if (current && current.index <= previous.index + 2) continue;
-    if (previous) {
-      blockStarts.add(changedRows[blockStartPosition].index);
-      blockEnds.add(previous.index);
+  if (options.groupNearbyDiffs !== false) {
+    let blockStartPosition = 0;
+    for (let position = 1; position <= changedRows.length; position += 1) {
+      const previous = changedRows[position - 1];
+      const current = changedRows[position];
+      if (current && current.index <= previous.index + 2) continue;
+      if (previous) {
+        blockStarts.add(changedRows[blockStartPosition].index);
+        blockEnds.add(previous.index);
+      }
+      blockStartPosition = position;
     }
-    blockStartPosition = position;
   }
 
+  if (options.detectMoves === false) return;
   for (let diffIndex = 0; diffIndex < diffs.length; diffIndex += 1) {
     const move = diffs[diffIndex]?.move;
     if (!move) continue;
