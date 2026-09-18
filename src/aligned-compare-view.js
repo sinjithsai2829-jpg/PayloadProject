@@ -1,4 +1,5 @@
-import { buildAlignedRows, changedTextRange } from './alignment-model.js';
+import { buildAlignedRows } from './alignment-model.js';
+import { inlineDiffRanges } from './inline-text-diff.js';
 
 const editors = [document.querySelector('#editor0'), document.querySelector('#editor1')];
 const panes = [...document.querySelectorAll('.pane')];
@@ -324,19 +325,23 @@ function appendRowText(node, value, item, paneIndex, counterpartLine) {
 
   const left = model.leftLines[item.leftLine - 1] || '';
   const right = model.rightLines[item.rightLine - 1] || '';
-  const range = changedTextRange(left, right);
-  const start = paneIndex === 0 ? range.leftStart : range.rightStart;
-  const end = paneIndex === 0 ? range.leftEnd : range.rightEnd;
-  if (end <= start) {
+  const ranges = inlineDiffRanges(left, right);
+  const selected = paneIndex === 0 ? ranges.left : ranges.right;
+  if (!selected.length) {
     node.textContent = value;
     return;
   }
 
-  node.append(document.createTextNode(value.slice(0, start)));
-  const changed = document.createElement('mark');
-  changed.className = 'aligned-inline-change';
-  changed.textContent = value.slice(start, end);
-  node.append(changed, document.createTextNode(value.slice(end)));
+  let cursor = 0;
+  for (const range of selected) {
+    if (range.start > cursor) node.append(document.createTextNode(value.slice(cursor, range.start)));
+    const changed = document.createElement('mark');
+    changed.className = 'aligned-inline-change';
+    changed.textContent = value.slice(range.start, range.end);
+    node.append(changed);
+    cursor = range.end;
+  }
+  if (cursor < value.length) node.append(document.createTextNode(value.slice(cursor)));
 }
 
 function rowClass(item, paneIndex) {
