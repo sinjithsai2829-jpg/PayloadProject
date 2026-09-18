@@ -156,10 +156,10 @@ els.editors.forEach((editor, index) => {
     state.panes[index].formatted = '';
     state.panes[index].parsed = null;
 
-    // Editing valid/temporarily-invalid JSON is part of the same comparison
-    // session. The live comparison module owns refresh while that session is
-    // active, so the core must not destroy the comparison bar on each keypress.
-    if (!isLiveJsonComparisonActive()) clearComparison();
+    // Editing valid/temporarily-invalid JSON or XML is part of the same live
+    // comparison session. The live comparison module owns refresh while that
+    // session is active, so the core must not destroy the compare UI first.
+    if (!isLiveComparisonActive()) clearComparison();
     updateMeta(index);
   });
 });
@@ -190,8 +190,9 @@ window.addEventListener('payloaddiff:live-compare-updated', (event) => {
   }
 });
 
-function isLiveJsonComparisonActive() {
-  return state.mode === 'json' && !!window.PayloadDiffCompareSession?.isActive?.();
+function isLiveComparisonActive() {
+  return !!window.PayloadDiffCompareSession?.isActive?.()
+    && window.PayloadDiffCompareSession?.getMode?.() === state.mode;
 }
 
 function switchMode(mode) {
@@ -289,33 +290,14 @@ async function compareBoth() {
   const right = els.editors[1].value;
   if (!left.trim() || !right.trim()) return setStatus('Both File 1 and File 2 are required.', true);
 
+  const session = window.PayloadDiffCompareSession;
+  if (!session?.start) return setStatus('Comparison engine is still loading. Try Compare again.', true);
+
   setBusy(true, 'Comparing in background worker…');
   try {
-    // Format first so both editors are normalized and tree data is ready.
-    await Promise.all([formatPane(0), formatPane(1)]);
-    const result = await runWorker('compare', {
-      mode: state.mode,
-      left: els.editors[0].value,
-      right: els.editors[1].value,
-    });
-    state.compare = result;
-    state.compareIndex = result.identical ? -1 : 0;
-    buildDiffIndex();
-
-    if (state.mode === 'xml') {
-      state.panes[0].raw = result.leftFormatted;
-      state.panes[1].raw = result.rightFormatted;
-      els.editors[0].value = result.leftFormatted;
-      els.editors[1].value = result.rightFormatted;
-    } else {
-      renderTree(0);
-      renderTree(1);
-    }
-
-    renderComparison();
-    setStatus(result.identical ? `Identical (${result.elapsedMs} ms)` : `Comparison complete (${result.elapsedMs} ms)`);
+    await session.start();
   } catch (error) {
-    setStatus(error.message, true);
+    setStatus(error?.message || 'Comparison failed.', true);
   } finally {
     setBusy(false);
   }

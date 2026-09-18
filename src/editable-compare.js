@@ -1,8 +1,7 @@
-import { buildDiffLineIndex, nearestDiffIndexForLine, visibleCenterLine, lineFromClientY } from './diff-navigation.js';
+import { buildDiffLineIndex, nearestDiffIndexForLine, lineFromClientY } from './diff-navigation.js';
 
 const editors = [document.querySelector('#editor0'), document.querySelector('#editor1')];
 const panes = [...document.querySelectorAll('.pane')];
-const compareBtn = document.querySelector('#compareBtn');
 const clearBtn = document.querySelector('#clearBtn');
 const compareBar = document.querySelector('#compareBar');
 const compareSummary = document.querySelector('#compareSummary');
@@ -26,11 +25,6 @@ let lastGoodElapsed = 0;
 let lastComparisonKind = 'structural';
 let lastFallbackReason = '';
 let invalidSides = [];
-let scrollTrackFrame = 0;
-let pendingScrollPane = 0;
-let suppressScrollTrackingUntil = 0;
-let userScrollPane = -1;
-let userScrollPaneUntil = 0;
 const workerPending = new Map();
 const diffsByPane = [[], []];
 const diffLinesByPane = [[], []];
@@ -41,6 +35,7 @@ window.PayloadDiffCompareSession = {
   getInvalidSides: () => invalidSides.map((item) => ({ ...item })),
   getCurrentDiffIndex: () => currentDiffIndex,
   getDiffCount: () => orderedDiffs.length,
+  start: () => startComparison(),
   getResult: () => lastGoodSummary ? {
     mode: activeMode,
     comparisonKind: lastComparisonKind,
@@ -142,18 +137,9 @@ function createOverlay(editor, index) {
 
   editor.addEventListener('scroll', () => {
     renderOverlay(index);
-    scheduleNavigatorFromScroll(index);
   }, { passive: true });
 
   editor.addEventListener('click', (event) => selectDiffFromClick(index, event));
-
-  const markUserScrollSource = () => {
-    userScrollPane = index;
-    userScrollPaneUntil = performance.now() + 900;
-  };
-  editor.addEventListener('wheel', markUserScrollSource, { passive: true });
-  editor.addEventListener('pointerdown', markUserScrollSource, { passive: true });
-  editor.addEventListener('touchstart', markUserScrollSource, { passive: true });
 
   window.addEventListener('resize', () => renderOverlay(index), { passive: true });
   return overlay;
@@ -167,31 +153,18 @@ function isVisible(element) {
   return !!element && !element.classList.contains('hidden') && element.offsetParent !== null;
 }
 
-function afterBusy(callback) {
-  let sawBusy = document.body.classList.contains('busy');
-  const started = performance.now();
-  const check = () => {
-    sawBusy ||= document.body.classList.contains('busy');
-    if ((sawBusy && !document.body.classList.contains('busy')) || performance.now() - started > 30000) {
-      requestAnimationFrame(callback);
-      return;
-    }
-    requestAnimationFrame(check);
-  };
-  requestAnimationFrame(check);
+async function startComparison() {
+  if (!editors[0]?.value.trim() || !editors[1]?.value.trim()) return null;
+
+  compareActive = true;
+  activeMode = currentMode();
+  invalidSides = [];
+  currentDiffIndex = 0;
+  clearInvalidPaneMarkers();
+  compareBar?.classList.remove('live-stale', 'live-invalid');
+
+  return refreshLiveComparison({ preserveNavigator: false });
 }
-
-compareBtn?.addEventListener('click', () => {
-  afterBusy(async () => {
-    if (!editors[0].value.trim() || !editors[1].value.trim()) return;
-    if (!compareBar || compareBar.classList.contains('hidden')) return;
-    compareActive = true;
-    activeMode = currentMode();
-    invalidSides = [];
-    await refreshLiveComparison({ preserveNavigator: false });
-  });
-}, true);
-
 editors.forEach((editor) => {
   editor.addEventListener('input', () => {
     if (!compareActive || currentMode() !== activeMode) return;
@@ -292,6 +265,7 @@ async function refreshLiveComparison({ preserveNavigator }) {
       ? `${activeMode.toUpperCase()} has syntax issues — comparing as text (${result.elapsedMs} ms)`
       : result.identical ? `Identical (${result.elapsedMs} ms)` : `Live comparison ${result.elapsedMs} ms`);
     publishComparisonResult(result.identical);
+    return result;
   } catch (error) {
     if (request !== latestRequest || !compareActive) return;
     invalidSides = Array.isArray(error.invalidSides) ? error.invalidSides : [];
@@ -305,6 +279,7 @@ async function refreshLiveComparison({ preserveNavigator }) {
     setLiveStatus(labels.length
       ? `${labels.join(' and ')} invalid — comparison will resume automatically when ${activeMode.toUpperCase()} is valid.`
       : `Editing — comparison will refresh when ${activeMode.toUpperCase()} is valid.`);
+    return null;
   }
 }
 
@@ -346,37 +321,6 @@ function disableNavigatorForEditing(label) {
   if (lastDiff) lastDiff.disabled = true;
 }
 
-function scheduleNavigatorFromScroll(index) {
-  if (!compareActive || invalidSides.length || currentMode() !== activeMode || !orderedDiffs.length) return;
-  if (!isVisible(editors[index])) return;
-  if (performance.now() < suppressScrollTrackingUntil) return;
-  if (performance.now() < userScrollPaneUntil && userScrollPane !== index) return;
-
-  pendingScrollPane = index;
-  if (scrollTrackFrame) return;
-  scrollTrackFrame = requestAnimationFrame(() => {
-    scrollTrackFrame = 0;
-    syncNavigatorToScroll(pendingScrollPane);
-  });
-}
-
-function syncNavigatorToScroll(index) {
-  const editor = editors[index];
-  const entries = diffLinesByPane[index];
-  if (!editor || !entries.length || !isVisible(editor)) return;
-
-  const computed = getComputedStyle(editor);
-  const lineHeight = parseFloat(computed.lineHeight) || 20;
-  const paddingTop = parseFloat(computed.paddingTop) || 0;
-  const centerLine = visibleCenterLine({
-    scrollTop: editor.scrollTop,
-    clientHeight: editor.clientHeight,
-    lineHeight,
-    paddingTop,
-  });
-  selectNearestDiffForLine(index, centerLine);
-}
-
 function selectDiffFromClick(index, event) {
   if (!compareActive || invalidSides.length || currentMode() !== activeMode || !orderedDiffs.length) return;
   const editor = editors[index];
@@ -406,7 +350,7 @@ function selectNearestDiffForLine(index, line) {
   updateNavigator();
   renderOverlay(0);
   renderOverlay(1);
-  publishSelectionChange('viewport');
+  publishSelectionChange('click');
 }
 
 function publishComparisonResult(identical = null) {
@@ -453,7 +397,6 @@ function scrollToCurrentDiff() {
   const diff = orderedDiffs[currentDiffIndex];
   if (!diff) return;
 
-  suppressScrollTrackingUntil = performance.now() + 350;
   scrollEditorToLine(0, diff.leftLine || diff.rightLine);
   scrollEditorToLine(1, diff.rightLine || diff.leftLine);
   renderOverlay(0);

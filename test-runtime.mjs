@@ -63,6 +63,13 @@ assert.ok(codeFolding.includes('fold-row-toggle'));
 assert.ok(codeFolding.includes('fold-code-view'));
 assert.ok(codeFolding.includes('foldedRanges'));
 assert.ok(codeFolding.includes('revealCurrentDifference'));
+assert.ok(codeFolding.includes('Navigation must never destroy a user\'s fold choices'));
+const revealStart = codeFolding.indexOf('function revealCurrentDifference()');
+const revealEnd = codeFolding.indexOf('\nfunction diffTypesForPane', revealStart);
+const revealSource = codeFolding.slice(revealStart, revealEnd);
+assert.ok(revealSource.includes('scrollSurfaceToOriginalLine(index, line)'));
+assert.ok(!revealSource.includes('collapsed.delete'), 'diff navigation must not expand user folds');
+assert.ok(!revealSource.includes('notifyFoldState'), 'diff navigation must not mutate persisted fold state');
 assert.ok(codeFolding.includes('syncInput?.checked'));
 assert.ok(sync.includes("classList.contains('fold-code-view')"));
 assert.ok(persistence.includes('PayloadDiffCodeFolding'));
@@ -116,6 +123,12 @@ assert.ok(!enhancements.includes("syncControl.classList.toggle('hidden', !json)"
 
 assert.ok(main.includes('PayloadDiffCompareSession'));
 assert.ok(main.includes('payloaddiff:live-compare-updated'));
+assert.ok(main.includes('await session.start()'), 'Compare must delegate to the single live comparison owner');
+assert.ok(main.includes('function isLiveComparisonActive()'), 'live edit preservation must apply to JSON and XML');
+assert.ok(!main.includes('isLiveJsonComparisonActive'), 'live edit preservation must not be JSON-only');
+assert.ok(!boot.includes("./compare-input-guard.js"), 'obsolete compare write guard must not be booted');
+assert.ok(!live.includes("publishSelectionChange('viewport')"), 'scrolling must not continuously change the selected difference');
+assert.ok(live.includes("publishSelectionChange('click')"), 'direct line clicks may explicitly change selection');
 assert.ok(live.includes('activeMode'));
 assert.ok(live.includes('compareLive'));
 assert.ok(live.includes('comparison will refresh when ${activeMode.toUpperCase()} is valid'));
@@ -137,6 +150,7 @@ assert.ok(!inlineDiff.includes("mode === 'json'"));
 assert.ok(!inlineDiff.includes("mode === 'xml'"));
 
 assert.ok(scrollbarVisibility.includes('.pd-scrollbar-rail'));
+assert.ok(scrollbarVisibility.includes("scheduleUpdate(index, 'layout-settled')"), 'scrollbar geometry must retry after layout settles');
 assert.ok(scrollbarVisibility.includes('scrollbar-gutter: stable'));
 assert.ok(scrollbarVisibility.includes('::-webkit-scrollbar'));
 assert.ok(!scrollbarVisibility.includes('scrollbar-width: none'));

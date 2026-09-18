@@ -17,7 +17,6 @@ import './sync-scroll.js';
 import './diff-nav-ui.js';
 import './compare-options-ui.js';
 import './compare-options-worker-bridge.js';
-import './compare-input-guard.js';
 import './editable-compare.js';
 import './aligned-compare-view.js';
 import './compare-options-enhancements.js';

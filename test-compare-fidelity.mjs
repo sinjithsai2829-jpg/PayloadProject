@@ -43,18 +43,22 @@ assert.ok(lossless.summary.added + lossless.summary.removed + lossless.summary.m
 assert.ok(lossless.diffs.some((diff) => diff.rightLine === 4 || diff.rightLine === 5),
   'lossless comparison must navigate to the extra line instead of dropping it');
 
-const guard = await readFile(new URL('./src/compare-input-guard.js', import.meta.url), 'utf8');
 const boot = await readFile(new URL('./src/boot.js', import.meta.url), 'utf8');
+const main = await readFile(new URL('./src/main.js', import.meta.url), 'utf8');
+const live = await readFile(new URL('./src/editable-compare.js', import.meta.url), 'utf8');
 const worker = await readFile(new URL('./src/worker.js', import.meta.url), 'utf8');
 const smooth = await readFile(new URL('./src/smooth-worker.js', import.meta.url), 'utf8');
 
-assert.ok(boot.includes("import './compare-input-guard.js'"), 'read-only compare guard must load at startup');
-assert.ok(guard.includes('compare.editor-write-blocked'), 'blocked compare-time editor writes must be diagnosed');
-assert.ok(guard.includes('compare.input-guard-finished'), 'compare guard must log before/after invariants');
-assert.ok(guard.includes("window.dispatchEvent(new CustomEvent('payloaddiff:compare-input-mutated'"),
-  'unexpected editor mutation must surface as an invariant violation');
-assert.ok(!guard.includes("currentMode() === 'json'"), 'read-only compare behavior must not be JSON-only');
-assert.ok(!guard.includes("currentMode() === 'xml'"), 'read-only compare behavior must not be XML-only');
+assert.ok(!boot.includes("import './compare-input-guard.js'"),
+  'compare should be read-only by architecture rather than by intercepting editor writes');
+assert.ok(main.includes('await session.start()'),
+  'the toolbar Compare action must delegate to the single live comparison session');
+const compareStart = main.indexOf('async function compareBoth()');
+const compareEnd = main.indexOf('\nfunction renderComparison()', compareStart);
+const compareSource = main.slice(compareStart, compareEnd);
+assert.ok(!compareSource.includes('formatPane('), 'Compare must not rewrite/format editor content before comparing');
+assert.ok(!compareSource.includes('.value ='), 'Compare must not assign textarea values');
+assert.ok(live.includes('start: () => startComparison()'), 'the read-only comparison owner must expose one start API');
 
 for (const source of [worker, smooth]) {
   assert.ok(source.includes('jsonComparisonFidelityIssue'), 'both compare workers must protect duplicate JSON keys');
