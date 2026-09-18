@@ -16,6 +16,9 @@ let rowTops = [];
 let rowHeights = [];
 let totalHeight = 0;
 let syncLock = false;
+let blockStarts = new Set();
+let blockEnds = new Set();
+let moveRows = [new Map(), new Map()];
 
 installStyles();
 for (let index = 0; index < editors.length; index += 1) installPane(index);
@@ -131,6 +134,7 @@ function rebuildFromCurrentState() {
   }
 
   model = buildAlignedRows(editors[0]?.value || '', editors[1]?.value || '', diffs);
+  rebuildDecorations();
   rebuildLayout();
   updateVisibility();
   renderAll();
@@ -144,6 +148,38 @@ function rebuildFromCurrentState() {
       wordWrap: [isWrapped(0), isWrapped(1)],
     });
   } catch (_) {}
+}
+
+function rebuildDecorations() {
+  blockStarts = new Set();
+  blockEnds = new Set();
+  moveRows = [new Map(), new Map()];
+  if (!model?.rows?.length) return;
+
+  const changedRows = model.rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => row.diffIndexes.length > 0);
+
+  let blockStartPosition = 0;
+  for (let position = 1; position <= changedRows.length; position += 1) {
+    const previous = changedRows[position - 1];
+    const current = changedRows[position];
+    if (current && current.index <= previous.index + 2) continue;
+    if (previous) {
+      blockStarts.add(changedRows[blockStartPosition].index);
+      blockEnds.add(previous.index);
+    }
+    blockStartPosition = position;
+  }
+
+  for (let diffIndex = 0; diffIndex < diffs.length; diffIndex += 1) {
+    const move = diffs[diffIndex]?.move;
+    if (!move) continue;
+    const rowIndex = model.rowForDiff?.[diffIndex];
+    if (!Number.isInteger(rowIndex) || rowIndex < 0) continue;
+    const paneIndex = move.role === 'from' ? 0 : 1;
+    moveRows[paneIndex].set(rowIndex, move);
+  }
 }
 
 function rebuildLayout() {
@@ -255,8 +291,15 @@ function render(index) {
     text.className = 'aligned-compare-text';
     if (!line) {
       text.classList.add('placeholder');
-      text.textContent = 'no corresponding line';
-      text.title = 'Visual alignment spacer only — this line does not exist in this payload.';
+      const move = moveRows[index].get(rowIndex);
+      text.textContent = move
+        ? (move.role === 'from'
+          ? `moved — appears at line ${move.counterpartLine || '?'} in File 2`
+          : `moved — came from line ${move.counterpartLine || '?'} in File 1`)
+        : 'no corresponding line';
+      text.title = move
+        ? 'Moved line alignment marker.'
+        : 'Visual alignment spacer only — this line does not exist in this payload.';
     } else {
       const value = index === 0 ? model.leftLines[line - 1] || '' : model.rightLines[line - 1] || '';
       appendRowText(text, value, item, index, counterpart);
@@ -297,6 +340,13 @@ function rowClass(item, paneIndex) {
   const classes = ['aligned-compare-row'];
   if (item.type) classes.push(`diff-${item.type}`);
   if (!line) classes.push('missing-line');
+  if (blockStarts.has(item.rowIndex)) classes.push('diff-block-start');
+  if (blockEnds.has(item.rowIndex)) classes.push('diff-block-end');
+  const move = moveRows[paneIndex].get(item.rowIndex);
+  if (move) {
+    classes.push(move.role === 'from' ? 'moved-from' : 'moved-to');
+    if (move.multiple) classes.push('moved-multiple');
+  }
   if (item.diffIndexes.includes(currentDiffIndex)) classes.push('current');
   return classes.join(' ');
 }
@@ -389,6 +439,9 @@ function reset() {
   rowTops = [];
   rowHeights = [];
   totalHeight = 0;
+  blockStarts = new Set();
+  blockEnds = new Set();
+  moveRows = [new Map(), new Map()];
   for (let index = 0; index < panes.length; index += 1) {
     surfaces[index]?.classList.add('hidden');
     editors[index]?.closest('.editor-wrap')?.classList.remove('aligned-compare-active');
