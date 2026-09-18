@@ -84,7 +84,11 @@ assert.ok(foldBridge.includes('.aligned-compare-active:not(.folding-active) > .c
 assert.ok(foldBridge.includes('.aligned-compare-active.folding-active > .fold-code-view'));
 assert.ok(foldBridge.includes('PayloadDiffCodeFolding?.refresh'));
 const codeFolding = fs.readFileSync('./src/code-folding.js', 'utf8');
-assert.ok(codeFolding.includes('scrollSurfaceToOriginalLine(index, line)'));
-assert.ok(!codeFolding.includes('state.collapsed.delete(startLine)'));
+const revealStart = codeFolding.indexOf('function revealCurrentDifference()');
+const revealEnd = codeFolding.indexOf('\nfunction diffTypesForPane', revealStart);
+const revealSource = codeFolding.slice(revealStart, revealEnd);
+assert.ok(revealSource.includes('scrollSurfaceToOriginalLine(index, line)'));
+assert.ok(!revealSource.includes('collapsed.delete'));
+assert.ok(!revealSource.includes('notifyFoldState'));
 
 console.log('All aligned comparison tests passed.');
