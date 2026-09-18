@@ -96,6 +96,10 @@ for (const requiredSignal of [
 
 assert.ok(diagnosticsSource.includes('queryLength'));
 assert.ok(diagnosticsSource.includes('panelNameLength'));
+assert.ok(diagnosticsSource.includes("pane.querySelector('.fold-code-view')"), 'folded Code projection must participate in visibility diagnostics');
+assert.ok(diagnosticsSource.includes('codeSurfaceVisible = editorState.visible || foldState.visible || alignedState.visible'));
+assert.ok(diagnosticsSource.includes('setTimeout(() => {\n        mutationTimer = 0;'), 'DOM diagnostics should coalesce mutation bursts');
+assert.ok(diagnosticsSource.includes('for (const delay of [0, 100, 1000, 3000])'), 'operation diagnostics should avoid excessive deep checkpoints');
 assert.ok(!diagnosticsSource.includes('selectionText:'), 'diagnostics must not copy selected payload text');
 assert.ok(!diagnosticsSource.includes('searchText:'), 'diagnostics must not copy search text');
 assert.ok(!diagnosticsSource.includes('clipboardText:'), 'diagnostics must not copy clipboard text');
