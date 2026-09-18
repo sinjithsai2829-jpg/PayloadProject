@@ -1,6 +1,3 @@
-import { annotateMovedLineDiffs } from './compare-normalization.js';
-import { buildAlignedRows } from './alignment-model.js';
-
 const editors = [document.querySelector('#editor0'), document.querySelector('#editor1')];
 let latestDetail = null;
 let decorateFrame = 0;
@@ -31,84 +28,26 @@ function scheduleDecorate() {
   if (decorateFrame) return;
   decorateFrame = requestAnimationFrame(() => {
     decorateFrame = 0;
-    decorate();
-  });
-}
-
-function decorate() {
-  const detail = latestDetail;
-  if (!detail || !Array.isArray(detail.diffs)) return;
-  const options = window.PayloadDiffCompareOptions?.get?.() || {};
-  const leftText = editors[0]?.value || '';
-  const rightText = editors[1]?.value || '';
-  const leftLines = leftText.replace(/\r\n?/g, '\n').split('\n');
-  const rightLines = rightText.replace(/\r\n?/g, '\n').split('\n');
-  const moved = annotateMovedLineDiffs(detail.diffs, leftLines, rightLines, options);
-  const aligned = buildAlignedRows(leftText, rightText, detail.diffs);
-
-  document.querySelectorAll('.aligned-compare-row').forEach((row) => {
-    row.classList.remove('diff-block-start', 'diff-block-end', 'moved-from', 'moved-to', 'moved-multiple');
-    delete row.dataset.moveCounterpartLine;
-  });
-
-  if (options.groupNearbyDiffs !== false) decorateBlocks(aligned);
-  if (options.detectMoves !== false) decorateMoves(aligned, moved.diffs);
-
-  try {
-    window.PayloadDiffDiagnostics?.log?.('debug', 'comparison.notepad-features-decorated', {
-      movedPairs: moved.movedPairs,
-      grouped: options.groupNearbyDiffs !== false,
-      ignoreWhitespace: options.ignoreWhitespace === true,
-      ignoreCase: options.ignoreCase === true,
-    });
-  } catch (_) {}
-}
-
-function decorateBlocks(aligned) {
-  const changedRows = aligned.rows
-    .map((row, index) => ({ row, index }))
-    .filter(({ row }) => row.diffIndexes.length > 0);
-  if (!changedRows.length) return;
-
-  let blockStart = 0;
-  for (let position = 1; position <= changedRows.length; position += 1) {
-    const previous = changedRows[position - 1];
-    const current = changedRows[position];
-    const continues = current && current.index <= previous.index + 2;
-    if (continues) continue;
-
-    const first = changedRows[blockStart].index;
-    const last = previous.index;
-    for (const surface of document.querySelectorAll('.aligned-compare-view')) {
-      surface.querySelector(`.aligned-compare-row[data-row-index="${first}"]`)?.classList.add('diff-block-start');
-      surface.querySelector(`.aligned-compare-row[data-row-index="${last}"]`)?.classList.add('diff-block-end');
+    const detail = latestDetail;
+    if (!detail || !Array.isArray(detail.diffs)) return;
+    const options = window.PayloadDiffCompareOptions?.get?.() || {};
+    const movedIds = new Set();
+    for (const diff of detail.diffs) {
+      if (diff?.move?.id) movedIds.add(diff.move.id);
     }
-    blockStart = position;
-  }
-}
 
-function decorateMoves(aligned, diffs) {
-  for (let diffIndex = 0; diffIndex < diffs.length; diffIndex += 1) {
-    const move = diffs[diffIndex]?.move;
-    if (!move) continue;
-    const rowIndex = aligned.rowForDiff?.[diffIndex];
-    if (!Number.isInteger(rowIndex) || rowIndex < 0) continue;
-
-    const side = move.role === 'from' ? 0 : 1;
-    const surface = document.querySelector(`.aligned-compare-view[data-pane="${side}"]`);
-    const row = surface?.querySelector(`.aligned-compare-row[data-row-index="${rowIndex}"]`);
-    if (!row) continue;
-    row.classList.add(move.role === 'from' ? 'moved-from' : 'moved-to');
-    if (move.multiple) row.classList.add('moved-multiple');
-    row.dataset.moveCounterpartLine = String(move.counterpartLine || '');
-
-    const placeholder = row.querySelector('.aligned-compare-text.placeholder');
-    if (placeholder) {
-      placeholder.textContent = move.role === 'from'
-        ? `moved — appears at line ${move.counterpartLine || '?'} in File 2`
-        : `moved — came from line ${move.counterpartLine || '?'} in File 1`;
-    }
-  }
+    // Group boundaries and move classes are part of the persistent aligned
+    // comparison model. Do not rebuild alignment or scan rendered DOM here:
+    // navigation should only move the active selection, just like ComparePlus.
+    try {
+      window.PayloadDiffDiagnostics?.log?.('debug', 'comparison.notepad-features-decorated', {
+        movedPairs: movedIds.size,
+        grouped: options.groupNearbyDiffs !== false,
+        ignoreWhitespace: options.ignoreWhitespace === true,
+        ignoreCase: options.ignoreCase === true,
+      });
+    } catch (_) {}
+  });
 }
 
 function installStyles() {
