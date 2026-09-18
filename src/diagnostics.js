@@ -10,7 +10,7 @@ import {
 
 const STORAGE_KEY = 'payloaddiff:diagnostics:v2';
 const LEGACY_STORAGE_KEY = 'payloaddiff:diagnostics:v1';
-const APP_VERSION = '0.3.4';
+const APP_VERSION = '0.3.5';
 const EXPORT_FORMAT_VERSION = 'browser-v4';
 const SESSION_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 const startedAt = performance.now();
