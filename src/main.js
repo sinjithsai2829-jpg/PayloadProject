@@ -272,6 +272,9 @@ function detectedPaneMode(index) {
 }
 
 function refreshScrollChrome(index = null) {
+  window.dispatchEvent(new CustomEvent('payloaddiff:content-layout-changed', {
+    detail: { paneIndex: index },
+  }));
   const refresh = () => {
     window.PayloadDiffScrollbars?.refresh?.(index);
     window.PayloadDiffHorizontalScrollbars?.refresh?.(index);
