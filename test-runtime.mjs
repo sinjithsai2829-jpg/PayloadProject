@@ -119,6 +119,8 @@ assert.ok(!enhancements.includes("syncControl.classList.toggle('hidden', !json)"
 assert.ok(main.includes('PayloadDiffCompareSession'));
 assert.ok(main.includes('payloaddiff:live-compare-updated'));
 assert.ok(main.includes('await session.start()'), 'Compare must delegate to the single live comparison owner');
+assert.ok(main.includes('function isLiveComparisonActive()'), 'live edit preservation must apply to JSON and XML');
+assert.ok(!main.includes('isLiveJsonComparisonActive'), 'live edit preservation must not be JSON-only');
 assert.ok(!boot.includes("./compare-input-guard.js"), 'obsolete compare write guard must not be booted');
 assert.ok(!live.includes("publishSelectionChange('viewport')"), 'scrolling must not continuously change the selected difference');
 assert.ok(live.includes("publishSelectionChange('click')"), 'direct line clicks may explicitly change selection');
