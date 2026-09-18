@@ -54,14 +54,32 @@ export function installPayloadActionModeGuard(root = document) {
     const beforeMode = activeMode(root);
 
     if (result.conflict) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
       const conflictText = result.confident
         .map((detection) => `File ${detection.paneIndex + 1} is ${detection.mode.toUpperCase()}`)
         .join(' while ');
+
+      // Comparing JSON to XML is intentionally unsupported, but formatting is
+      // pane-local. Let Format both continue so each non-empty pane can use its
+      // own confidently detected formatter instead of forcing one global mode.
+      if (action === 'format') {
+        setStatus(
+          statusText,
+          `${conflictText}. Formatting each pane with its detected payload type…`,
+          false,
+        );
+        logDiagnostic('info', 'payload.action-mode-mixed-format', {
+          action,
+          beforeMode,
+          detections: diagnosticDetections(result.detections),
+        });
+        return;
+      }
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
       setStatus(
         statusText,
-        `${conflictText}. Both panes must use the same payload type before ${action === 'compare' ? 'comparing' : 'formatting both'}.`,
+        `${conflictText}. JSON and XML cannot be compared directly; both panes must use the same payload type.`,
         true,
       );
       logDiagnostic('warn', 'payload.action-mode-conflict', {
