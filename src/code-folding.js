@@ -572,24 +572,15 @@ function notifyFoldState(index) {
 function revealCurrentDifference() {
   const diff = latestDiffs[latestDiffIndex];
   if (!diff) return;
+
   for (let index = 0; index < paneState.length; index += 1) {
     const line = index === 0 ? (diff.leftLine || diff.rightLine) : (diff.rightLine || diff.leftLine);
     if (!line) continue;
-    const state = paneState[index];
-    let changed = false;
-    for (const startLine of [...state.collapsed]) {
-      const range = state.rangeByStart.get(startLine);
-      if (range && line > range.startLine && line <= range.endLine) {
-        state.collapsed.delete(startLine);
-        changed = true;
-      }
-    }
-    if (changed) {
-      rebuildProjection(index);
-      applySurface(index);
-      notifyFoldState(index);
-    }
-    if (state.collapsed.size) scrollSurfaceToOriginalLine(index, line);
+
+    // Navigation must never destroy a user's fold choices. If the selected
+    // difference lives inside a collapsed block, keep the block collapsed,
+    // highlight that folded row, and scroll the folded projection to it.
+    scrollSurfaceToOriginalLine(index, line);
   }
 }
 
