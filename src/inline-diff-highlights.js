@@ -1,3 +1,5 @@
+import { inlineDiffRanges } from './inline-text-diff.js';
+
 const editors = [document.querySelector('#editor0'), document.querySelector('#editor1')];
 const panes = [...document.querySelectorAll('.pane')];
 const layers = [];
@@ -110,25 +112,25 @@ function rebuildVisualSegments() {
 function addPairedSegments(leftIndex, rightIndex, leftLine, rightLine, kind) {
   const leftText = lineCache[0][leftLine - 1] ?? '';
   const rightText = lineCache[1][rightLine - 1] ?? '';
-  const range = changedRange(leftText, rightText);
+  const ranges = inlineDiffRanges(leftText, rightText);
   const diffIndexes = leftIndex === rightIndex ? [leftIndex] : [leftIndex, rightIndex];
   const current = diffIndexes.includes(currentDiffIndex);
 
-  if (range.leftEnd > range.leftStart) {
+  for (const range of ranges.left) {
     visualSegments[0].push({
       line: leftLine,
-      start: range.leftStart,
-      end: range.leftEnd,
+      start: range.start,
+      end: range.end,
       type: kind === 'replacement' ? 'removed' : 'modified',
       diffIndexes,
       current,
     });
   }
-  if (range.rightEnd > range.rightStart) {
+  for (const range of ranges.right) {
     visualSegments[1].push({
       line: rightLine,
-      start: range.rightStart,
-      end: range.rightEnd,
+      start: range.start,
+      end: range.end,
       type: kind === 'replacement' ? 'added' : 'modified',
       diffIndexes,
       current,
