@@ -1,5 +1,3 @@
-import './style.css';
-
 const app = document.querySelector('#app');
 const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
 let seq = 0;
