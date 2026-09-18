@@ -40,6 +40,13 @@ window.addEventListener('payloaddiff:live-compare-updated', (event) => {
   if (currentDiffIndex >= 0 && currentDiffIndex !== previousIndex) requestAnimationFrame(() => revealDiff(currentDiffIndex));
 });
 
+window.addEventListener('payloaddiff:diff-selection-changed', (event) => {
+  const nextIndex = Number(event.detail?.currentDiffIndex);
+  if (!Number.isInteger(nextIndex) || nextIndex < 0 || nextIndex === currentDiffIndex) return;
+  currentDiffIndex = nextIndex;
+  if (active && !editing) requestAnimationFrame(() => revealDiff(currentDiffIndex));
+});
+
 window.addEventListener('payloaddiff:comparison-reset', reset);
 window.addEventListener('payloaddiff:word-wrap-changed', () => {
   if (!active) return;
