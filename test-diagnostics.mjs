@@ -96,6 +96,7 @@ for (const requiredSignal of [
 
 assert.ok(diagnosticsSource.includes('queryLength'));
 assert.ok(diagnosticsSource.includes('panelNameLength'));
+// A folded Code projection is a valid visible Code surface even though the canonical textarea is hidden.
 assert.ok(diagnosticsSource.includes("pane.querySelector('.fold-code-view')"), 'folded Code projection must participate in visibility diagnostics');
 assert.ok(diagnosticsSource.includes('codeSurfaceVisible = editorState.visible || foldState.visible || alignedState.visible'));
 assert.ok(diagnosticsSource.includes('setTimeout(() => {\n        mutationTimer = 0;'), 'DOM diagnostics should coalesce mutation bursts');
