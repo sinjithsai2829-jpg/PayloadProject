@@ -10,7 +10,7 @@ import {
 
 const STORAGE_KEY = 'payloaddiff:diagnostics:v2';
 const LEGACY_STORAGE_KEY = 'payloaddiff:diagnostics:v1';
-const APP_VERSION = '0.3.4';
+const APP_VERSION = '0.3.5';
 const EXPORT_FORMAT_VERSION = 'browser-v4';
 const SESSION_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 const startedAt = performance.now();
@@ -344,6 +344,7 @@ function installPerformanceLogging() {
 function installStateObservers() {
   const customEvents = [
     'payloaddiff:live-compare-updated',
+    'payloaddiff:diff-selection-changed',
     'payloaddiff:syntax-issues-updated',
     'payloaddiff:view-surface-synced',
     'payloaddiff:fold-state-changed',
@@ -360,7 +361,7 @@ function installStateObservers() {
         detail: summarizeCustomEvent(type, event.detail),
         snapshot: captureCompactSnapshot(),
       });
-      schedulePostInteractionCheck(type);
+      if (type !== 'payloaddiff:diff-selection-changed') schedulePostInteractionCheck(type);
     });
   }
 
@@ -836,6 +837,20 @@ function summarizeCustomEvent(type, detail) {
         leftLine: numberOrNull(diff.leftLine),
         rightLine: numberOrNull(diff.rightLine),
       })),
+    };
+  }
+  if (type === 'payloaddiff:diff-selection-changed') {
+    return {
+      mode: source.mode || null,
+      currentDiffIndex: numberOrNull(source.currentDiffIndex),
+      diffCount: numberOrNull(source.diffCount),
+      reason: source.reason || null,
+      diff: source.diff ? {
+        type: source.diff.type || null,
+        leftLine: numberOrNull(source.diff.leftLine),
+        rightLine: numberOrNull(source.diff.rightLine),
+        moved: !!source.diff.move,
+      } : null,
     };
   }
   if (type === 'payloaddiff:syntax-issues-updated') {

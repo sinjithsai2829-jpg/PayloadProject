@@ -253,7 +253,7 @@ function selectAbsoluteDiff(index) {
 
 function finishNavigation() {
   updateNavigator();
-  publishCoreComparisonState();
+  publishSelectionChange('navigator');
   if (!window.PayloadDiffAlignedCompare?.revealDiff?.(currentDiffIndex)) scrollToCurrentDiff();
 }
 
@@ -291,7 +291,7 @@ async function refreshLiveComparison({ preserveNavigator }) {
     setLiveStatus(result.fallback
       ? `${activeMode.toUpperCase()} has syntax issues — comparing as text (${result.elapsedMs} ms)`
       : result.identical ? `Identical (${result.elapsedMs} ms)` : `Live comparison ${result.elapsedMs} ms`);
-    publishCoreComparisonState(result.identical);
+    publishComparisonResult(result.identical);
   } catch (error) {
     if (request !== latestRequest || !compareActive) return;
     invalidSides = Array.isArray(error.invalidSides) ? error.invalidSides : [];
@@ -406,16 +406,18 @@ function selectNearestDiffForLine(index, line) {
   updateNavigator();
   renderOverlay(0);
   renderOverlay(1);
-  publishCoreComparisonState();
+  publishSelectionChange('viewport');
 }
 
-function publishCoreComparisonState(identical = null) {
+function publishComparisonResult(identical = null) {
   if (!lastGoodSummary) return;
   const total = lastGoodSummary.added + lastGoodSummary.removed + lastGoodSummary.modified;
   window.dispatchEvent(new CustomEvent('payloaddiff:live-compare-updated', {
     detail: {
       mode: activeMode,
-      diffs: orderedDiffs.map(({ path, type, leftLine, rightLine }) => ({ path, type, leftLine, rightLine })),
+      diffs: orderedDiffs.map(({ path, type, leftLine, rightLine, move }) => ({
+        path, type, leftLine, rightLine, ...(move ? { move: { ...move } } : {}),
+      })),
       structuralDiffs: structuralDiffs.map(({ path, type, leftLine, rightLine }) => ({ path, type, leftLine, rightLine })),
       summary: lastGoodSummary,
       identical: identical == null ? total === 0 : identical,
@@ -424,6 +426,25 @@ function publishCoreComparisonState(identical = null) {
       comparisonKind: lastComparisonKind,
       fallback: lastComparisonKind === 'text',
       fallbackReason: lastFallbackReason,
+    },
+  }));
+}
+
+function publishSelectionChange(reason = 'navigation') {
+  const diff = orderedDiffs[currentDiffIndex] || null;
+  window.dispatchEvent(new CustomEvent('payloaddiff:diff-selection-changed', {
+    detail: {
+      mode: activeMode,
+      currentDiffIndex,
+      diffCount: orderedDiffs.length,
+      reason,
+      diff: diff ? {
+        path: diff.path,
+        type: diff.type,
+        leftLine: diff.leftLine || null,
+        rightLine: diff.rightLine || null,
+        ...(diff.move ? { move: { ...diff.move } } : {}),
+      } : null,
     },
   }));
 }

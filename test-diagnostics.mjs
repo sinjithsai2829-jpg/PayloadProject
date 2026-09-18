@@ -86,6 +86,7 @@ for (const requiredSignal of [
   'ui.keyboard-shortcut',
   'editor.scrolled',
   'payloaddiff:live-compare-updated',
+  'payloaddiff:diff-selection-changed',
   'payloaddiff:syntax-issues-updated',
   'payloaddiff:view-surface-synced',
   'lineMapSample',

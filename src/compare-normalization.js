@@ -32,45 +32,95 @@ export function annotateMovedLineDiffs(diffs, leftLines, rightLines, options = {
   const result = source.map((diff) => ({ ...diff }));
   const removedByText = new Map();
   const addedByText = new Map();
+  const removedByLine = new Map();
+  const addedByLine = new Map();
+
+  const comparableLeft = (leftLines || []).map((line) => normalizeComparableText(line, normalized));
+  const comparableRight = (rightLines || []).map((line) => normalizeComparableText(line, normalized));
 
   for (let index = 0; index < result.length; index += 1) {
     const diff = result[index];
-    if (diff.type === 'removed' && positiveLine(diff.leftLine)) {
-      const line = String(leftLines?.[diff.leftLine - 1] ?? '');
-      pushByKey(removedByText, normalizeComparableText(line, normalized), index);
-    } else if (diff.type === 'added' && positiveLine(diff.rightLine)) {
-      const line = String(rightLines?.[diff.rightLine - 1] ?? '');
-      pushByKey(addedByText, normalizeComparableText(line, normalized), index);
+    const leftLine = positiveLine(diff.leftLine);
+    const rightLine = positiveLine(diff.rightLine);
+    if (diff.type === 'removed' && leftLine) {
+      const key = comparableLeft[leftLine - 1] ?? '';
+      pushByKey(removedByText, key, index);
+      removedByLine.set(leftLine, index);
+    } else if (diff.type === 'added' && rightLine) {
+      const key = comparableRight[rightLine - 1] ?? '';
+      pushByKey(addedByText, key, index);
+      addedByLine.set(rightLine, index);
     }
   }
 
+  // ComparePlus-style move matching starts from unique changed lines, then
+  // expands the match forward/backward. Repeated lines are deliberately not
+  // paired on their own because that creates convincing but incorrect moves in
+  // JSON arrays and XML documents containing many identical braces/tags.
+  const paired = new Set();
   let movedPairs = 0;
-  for (const [key, removedIndexes] of removedByText) {
-    if (!key) continue;
-    const addedIndexes = addedByText.get(key);
-    if (!addedIndexes?.length) continue;
-    const count = Math.min(removedIndexes.length, addedIndexes.length);
-    const multiple = removedIndexes.length > 1 || addedIndexes.length > 1;
 
-    for (let offset = 0; offset < count; offset += 1) {
-      const removedIndex = removedIndexes[offset];
-      const addedIndex = addedIndexes[offset];
-      const moveId = `move-${++movedPairs}`;
-      const removed = result[removedIndex];
-      const added = result[addedIndex];
-      removed.move = {
+  for (const [key, removedIndexes] of removedByText) {
+    const addedIndexes = addedByText.get(key);
+    if (!key || removedIndexes.length !== 1 || addedIndexes?.length !== 1) continue;
+
+    const anchorRemovedIndex = removedIndexes[0];
+    const anchorAddedIndex = addedIndexes[0];
+    if (paired.has(anchorRemovedIndex) || paired.has(anchorAddedIndex)) continue;
+
+    const anchorLeft = positiveLine(result[anchorRemovedIndex].leftLine);
+    const anchorRight = positiveLine(result[anchorAddedIndex].rightLine);
+    if (!anchorLeft || !anchorRight || anchorLeft === anchorRight) continue;
+
+    let leftStart = anchorLeft;
+    let rightStart = anchorRight;
+    let leftEnd = anchorLeft;
+    let rightEnd = anchorRight;
+
+    while (leftStart > 1 && rightStart > 1) {
+      const removedIndex = removedByLine.get(leftStart - 1);
+      const addedIndex = addedByLine.get(rightStart - 1);
+      if (removedIndex == null || addedIndex == null || paired.has(removedIndex) || paired.has(addedIndex)) break;
+      if ((comparableLeft[leftStart - 2] ?? '') !== (comparableRight[rightStart - 2] ?? '')) break;
+      leftStart -= 1;
+      rightStart -= 1;
+    }
+
+    while (leftEnd < comparableLeft.length && rightEnd < comparableRight.length) {
+      const removedIndex = removedByLine.get(leftEnd + 1);
+      const addedIndex = addedByLine.get(rightEnd + 1);
+      if (removedIndex == null || addedIndex == null || paired.has(removedIndex) || paired.has(addedIndex)) break;
+      if ((comparableLeft[leftEnd] ?? '') !== (comparableRight[rightEnd] ?? '')) break;
+      leftEnd += 1;
+      rightEnd += 1;
+    }
+
+    const moveId = `move-${++movedPairs}`;
+    const blockLength = Math.min(leftEnd - leftStart, rightEnd - rightStart) + 1;
+    for (let offset = 0; offset < blockLength; offset += 1) {
+      const leftLine = leftStart + offset;
+      const rightLine = rightStart + offset;
+      const removedIndex = removedByLine.get(leftLine);
+      const addedIndex = addedByLine.get(rightLine);
+      if (removedIndex == null || addedIndex == null) continue;
+      if (paired.has(removedIndex) || paired.has(addedIndex)) continue;
+      if ((comparableLeft[leftLine - 1] ?? '') !== (comparableRight[rightLine - 1] ?? '')) continue;
+
+      paired.add(removedIndex);
+      paired.add(addedIndex);
+      result[removedIndex].move = {
         id: moveId,
         role: 'from',
         counterpartDiffIndex: addedIndex,
-        counterpartLine: added.rightLine || null,
-        multiple,
+        counterpartLine: rightLine,
+        multiple: false,
       };
-      added.move = {
+      result[addedIndex].move = {
         id: moveId,
         role: 'to',
         counterpartDiffIndex: removedIndex,
-        counterpartLine: removed.leftLine || null,
-        multiple,
+        counterpartLine: leftLine,
+        multiple: false,
       };
     }
   }

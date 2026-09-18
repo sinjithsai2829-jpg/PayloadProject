@@ -62,6 +62,39 @@ assert.equal(moved.diffs[0].move.counterpartLine, 4);
 assert.equal(moved.diffs[1].move.role, 'to');
 assert.equal(moved.diffs[1].move.counterpartLine, 2);
 
+const ambiguousMoves = annotateMovedLineDiffs(
+  [
+    { type: 'removed', leftLine: 2, rightLine: null },
+    { type: 'removed', leftLine: 5, rightLine: null },
+    { type: 'added', leftLine: null, rightLine: 3 },
+    { type: 'added', leftLine: null, rightLine: 6 },
+  ],
+  ['a', 'repeat', 'b', 'c', 'repeat'],
+  ['a', 'b', 'repeat', 'c', 'd', 'repeat'],
+  { detectMoves: true },
+);
+assert.equal(ambiguousMoves.movedPairs, 0, 'repeated lines without a unique anchor must not be guessed as moves');
+
+const movedBlock = annotateMovedLineDiffs(
+  [
+    { type: 'removed', leftLine: 2, rightLine: null },
+    { type: 'removed', leftLine: 3, rightLine: null },
+    { type: 'removed', leftLine: 8, rightLine: null },
+    { type: 'added', leftLine: null, rightLine: 5 },
+    { type: 'added', leftLine: null, rightLine: 6 },
+    { type: 'added', leftLine: null, rightLine: 10 },
+  ],
+  ['x', 'unique-anchor', 'repeat', 'a', 'b', 'c', 'd', 'repeat'],
+  ['x', 'a', 'b', 'c', 'unique-anchor', 'repeat', 'd', 'e', 'f', 'repeat'],
+  { detectMoves: true },
+);
+assert.equal(movedBlock.movedPairs, 1);
+assert.equal(movedBlock.diffs[0].move.id, movedBlock.diffs[1].move.id);
+assert.equal(movedBlock.diffs[3].move.id, movedBlock.diffs[4].move.id);
+assert.equal(movedBlock.diffs[0].move.id, movedBlock.diffs[3].move.id);
+assert.equal(movedBlock.diffs[2].move, undefined, 'ambiguous repeated line outside the anchored block must remain unpaired');
+assert.equal(movedBlock.diffs[5].move, undefined);
+
 const noMoves = annotateMovedLineDiffs(
   [
     { type: 'removed', leftLine: 2, rightLine: null },
@@ -99,6 +132,8 @@ assert.ok(visual.includes('moved-from'));
 assert.ok(visual.includes('moved-to'));
 assert.ok(visual.includes('diff-block-start'));
 assert.ok(visual.includes('diff-block-end'));
+assert.ok(!visual.includes('buildAlignedRows('), 'visual decoration must reuse the persistent alignment model');
+assert.ok(!visual.includes('annotateMovedLineDiffs('), 'move metadata must be computed once in the comparison engine');
 assert.ok(boot.includes("import './compare-options-ui.js'"));
 assert.ok(boot.includes("import './compare-options-enhancements.js'"));
 assert.ok(smooth.includes('normalizeCompareOptions(payload.options || {})'));

@@ -5,6 +5,7 @@ import {
   visibleCenterLine,
   lineFromClientY,
 } from './src/diff-navigation.js';
+import { nearestStructuralDiff } from './src/diff-structural-mapping.js';
 
 const diffs = Array.from({ length: 534 }, (_, index) => ({
   path: `$.records[${index}]`,
@@ -61,5 +62,14 @@ assert.deepEqual(buildDiffLineIndex(oneSided, 1), [
   { line: 10, index: 0 },
   { line: 20, index: 1 },
 ]);
+
+const structural = [
+  { path: '$.records[0].id', type: 'modified', leftLine: 5, rightLine: 5 },
+  { path: '$.records[10].name', type: 'modified', leftLine: 45, rightLine: 45 },
+  { path: '$.records[20]', type: 'added', leftLine: null, rightLine: 90 },
+];
+assert.equal(nearestStructuralDiff(structural, { leftLine: 44, rightLine: 44 }, 0)?.path, '$.records[10].name');
+assert.equal(nearestStructuralDiff(structural, { leftLine: null, rightLine: 91 }, 1)?.path, '$.records[20]');
+assert.equal(nearestStructuralDiff(structural, { leftLine: 90, rightLine: null }, 0)?.path, '$.records[20]');
 
 console.log('All diff navigation tests passed.');

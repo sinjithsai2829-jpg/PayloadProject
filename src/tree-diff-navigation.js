@@ -1,28 +1,45 @@
+import { nearestStructuralDiff } from './diff-structural-mapping.js';
+
 const panes = [...document.querySelectorAll('.pane')];
 const trees = [document.querySelector('#tree0'), document.querySelector('#tree1')];
 
 let revealRevision = 0;
+let structuralDiffs = [];
+let currentCodeDiff = null;
 
 window.addEventListener('payloaddiff:live-compare-updated', (event) => {
   const detail = event.detail || {};
-  if (detail.mode !== 'json' || !Array.isArray(detail.diffs)) return;
+  if (detail.mode !== 'json') return;
+  structuralDiffs = Array.isArray(detail.structuralDiffs) ? detail.structuralDiffs : [];
   const index = Number.isInteger(detail.currentDiffIndex) ? detail.currentDiffIndex : -1;
-  const diff = index >= 0 ? detail.diffs[index] : null;
-  const revision = ++revealRevision;
+  currentCodeDiff = Array.isArray(detail.diffs) && index >= 0 ? detail.diffs[index] : null;
+  revealCurrentStructuralDifference();
+});
 
-  clearCurrentRows();
-  if (!diff?.path) return;
-
-  for (let paneIndex = 0; paneIndex < panes.length; paneIndex += 1) {
-    if (!treeIsActive(paneIndex)) continue;
-    revealJsonTreePath(paneIndex, diff.path, revision);
-  }
+window.addEventListener('payloaddiff:diff-selection-changed', (event) => {
+  if (event.detail?.mode !== 'json') return;
+  currentCodeDiff = event.detail?.diff || null;
+  revealCurrentStructuralDifference();
 });
 
 window.addEventListener('payloaddiff:comparison-reset', () => {
   revealRevision += 1;
+  structuralDiffs = [];
+  currentCodeDiff = null;
   clearCurrentRows();
 });
+
+function revealCurrentStructuralDifference() {
+  const revision = ++revealRevision;
+  clearCurrentRows();
+  if (!currentCodeDiff || !structuralDiffs.length) return;
+
+  for (let paneIndex = 0; paneIndex < panes.length; paneIndex += 1) {
+    if (!treeIsActive(paneIndex)) continue;
+    const structural = nearestStructuralDiff(structuralDiffs, currentCodeDiff, paneIndex);
+    if (structural?.path) revealJsonTreePath(paneIndex, structural.path, revision);
+  }
+}
 
 async function revealJsonTreePath(paneIndex, path, revision) {
   const tree = trees[paneIndex];
