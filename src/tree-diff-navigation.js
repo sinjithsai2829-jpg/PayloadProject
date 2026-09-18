@@ -2,27 +2,65 @@ const panes = [...document.querySelectorAll('.pane')];
 const trees = [document.querySelector('#tree0'), document.querySelector('#tree1')];
 
 let revealRevision = 0;
+let structuralDiffs = [];
+let currentCodeDiff = null;
 
 window.addEventListener('payloaddiff:live-compare-updated', (event) => {
   const detail = event.detail || {};
-  if (detail.mode !== 'json' || !Array.isArray(detail.diffs)) return;
+  if (detail.mode !== 'json') return;
+  structuralDiffs = Array.isArray(detail.structuralDiffs) ? detail.structuralDiffs : [];
   const index = Number.isInteger(detail.currentDiffIndex) ? detail.currentDiffIndex : -1;
-  const diff = index >= 0 ? detail.diffs[index] : null;
-  const revision = ++revealRevision;
+  currentCodeDiff = Array.isArray(detail.diffs) && index >= 0 ? detail.diffs[index] : null;
+  revealCurrentStructuralDifference();
+});
 
-  clearCurrentRows();
-  if (!diff?.path) return;
-
-  for (let paneIndex = 0; paneIndex < panes.length; paneIndex += 1) {
-    if (!treeIsActive(paneIndex)) continue;
-    revealJsonTreePath(paneIndex, diff.path, revision);
-  }
+window.addEventListener('payloaddiff:diff-selection-changed', (event) => {
+  if (event.detail?.mode !== 'json') return;
+  currentCodeDiff = event.detail?.diff || null;
+  revealCurrentStructuralDifference();
 });
 
 window.addEventListener('payloaddiff:comparison-reset', () => {
   revealRevision += 1;
+  structuralDiffs = [];
+  currentCodeDiff = null;
   clearCurrentRows();
 });
+
+function revealCurrentStructuralDifference() {
+  const revision = ++revealRevision;
+  clearCurrentRows();
+  if (!currentCodeDiff || !structuralDiffs.length) return;
+
+  for (let paneIndex = 0; paneIndex < panes.length; paneIndex += 1) {
+    if (!treeIsActive(paneIndex)) continue;
+    const structural = nearestStructuralDiff(currentCodeDiff, paneIndex);
+    if (structural?.path) revealJsonTreePath(paneIndex, structural.path, revision);
+  }
+}
+
+function nearestStructuralDiff(codeDiff, paneIndex) {
+  const primary = paneIndex === 0 ? Number(codeDiff.leftLine) : Number(codeDiff.rightLine);
+  const fallback = paneIndex === 0 ? Number(codeDiff.rightLine) : Number(codeDiff.leftLine);
+  const target = Number.isInteger(primary) && primary > 0 ? primary : fallback;
+  if (!Number.isInteger(target) || target <= 0) return structuralDiffs[0] || null;
+
+  let best = null;
+  let bestDistance = Infinity;
+  for (const diff of structuralDiffs) {
+    const own = paneIndex === 0 ? Number(diff.leftLine) : Number(diff.rightLine);
+    const other = paneIndex === 0 ? Number(diff.rightLine) : Number(diff.leftLine);
+    const line = Number.isInteger(own) && own > 0 ? own : other;
+    if (!Number.isInteger(line) || line <= 0) continue;
+    const distance = Math.abs(line - target);
+    if (distance < bestDistance) {
+      best = diff;
+      bestDistance = distance;
+      if (distance === 0) break;
+    }
+  }
+  return best;
+}
 
 async function revealJsonTreePath(paneIndex, path, revision) {
   const tree = trees[paneIndex];
